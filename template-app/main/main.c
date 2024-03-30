@@ -12,11 +12,13 @@
 
 #define WIFI_SSID      "Dyba_Bernardelli_2G"
 #define WIFI_PASS      "123581321"
-#define MAX_HTTP_RECV_BUFFER 512
+#define MAX_HTTP_RECV_BUFFER 1024
+#define MAX_COMMAND_LENGTH 1024
 
 static const char *TAG = "wifi_http_example";
 
 QueueHandle_t queue_tempo;
+QueueHandle_t commandQueue;
 
 esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
 
@@ -116,27 +118,20 @@ void http_get_task(void *pvParameters)
         // necessario pq se nao depois de um tempo nao consigo fazer novas requisições
         client = esp_http_client_init(&config);
 
+        memset(output_buffer, 0, sizeof(output_buffer));
+
             ESP_LOGI(TAG, "Botão pressionado, fazendo solicitação HTTP...");
             // Realiza a solicitação HTTP
             esp_err_t err = esp_http_client_perform(client);
         if (err == ESP_OK) {
-        ESP_LOGI(TAG, "Got data: %s", output_buffer);
-        // Parse do JSON para extrair o valor do tempo
-        int tempo_piscada;
-        sscanf(output_buffer, "\"%d\"", &tempo_piscada);
-        printf("Tempo Piscada get task %d\n",tempo_piscada);
+         ESP_LOGI(TAG, "Got data: %s", output_buffer);
+        if (xQueueSend(commandQueue, &output_buffer, portMAX_DELAY) != pdPASS) {
+            ESP_LOGE(TAG, "Failed to send command to the queue");
+            }
 
-        // Limpa o buffer para a próxima leitura
-        memset(output_buffer, 0, MAX_HTTP_RECV_BUFFER);
-
-        // Enviar o valor do tempo para a fila
-
-        if (xQueueSend(queue_tempo, &tempo_piscada, portMAX_DELAY) != pdPASS) {
-            ESP_LOGE(TAG, "Failed to send to the queue");
+        } else {
+            ESP_LOGE(TAG, "HTTP GET request failed: %s", esp_err_to_name(err));
         }
-    } else {
-        ESP_LOGE(TAG, "HTTP GET request failed: %s", esp_err_to_name(err));
-    }
 
            
         }
@@ -228,20 +223,76 @@ void vtask_blink_led(void *pvParameter){
         printf ("Pisquei\n");
     }
 
-} 
+}
+
+void execute_command(const char* command, int value) {
+    
+     esp_rom_gpio_pad_select_gpio (GPIO_NUM_32);
+     esp_rom_gpio_pad_select_gpio (GPIO_NUM_33);
+
+ 
+
+    //Define como saída
+     gpio_set_direction (GPIO_NUM_32, GPIO_MODE_OUTPUT);
+     gpio_set_direction (GPIO_NUM_33, GPIO_MODE_OUTPUT);
+
+     // Seleciona o GPIO baseado no valor.
+    gpio_num_t gpio_to_use = (value == 1) ? GPIO_NUM_32 : GPIO_NUM_33;
+
+   ESP_LOGI(TAG, "Comando dentro execute: %s", command);
+    if (strcmp(command, "ativar") == 0 || strcmp(command, "\"ativar") == 0  ) {
+        gpio_set_level(gpio_to_use, 1); // Assume que "1" ativa e "0" desativa
+    ESP_LOGI(TAG, "Ativei");
+
+    } else if (strcmp(command, "desativar") == 0 || strcmp(command, "\"desativar") == 0  ) {
+        gpio_set_level(gpio_to_use, 0); // Assume que "1" desativa e "0" mantém ativado
+    } else if (strcmp(command, "esperar") == 0 || strcmp(command, "\"esperar") == 0) {
+        vTaskDelay(pdMS_TO_TICKS(value * 1000)); // Espera pelo número especificado de segundos
+    }
+}
+
+
+void process_commands(const char* commands) {
+    char* commands_copy = strdup(commands); // Duplica a string para não alterar a original
+    char* token = strtok(commands_copy, "\\n");
+
+    while (token != NULL) {
+        char command[10];
+        int value;
+        sscanf(token, "%[^;];%d", command, &value);
+         ESP_LOGI(TAG, "Comando: %s", command);
+        execute_command(command, value);
+        token = strtok(NULL, "\\n");
+    }
+
+    free(commands_copy);
+}
+
+void commandTask(void *pvParameters) {
+    char receivedCommand[MAX_COMMAND_LENGTH];
+
+    
+    while (1) {
+        if (xQueueReceive(commandQueue, &receivedCommand, portMAX_DELAY) == pdPASS) {
+            // Processa o comando recebido
+            process_commands(receivedCommand);
+        }
+    }
+}
+
+
 void app_main(void) {
     // criar fila 
      queue_tempo = xQueueCreate(10, sizeof(int));
-    // Inicializa o Wi-Fi
-     xTaskCreate(vtask_blink_led     ,
-                "vtask_blink_led"   ,
-                2048                ,
-                NULL                ,
-                10                   ,
-                NULL);
+     commandQueue = xQueueCreate(10, sizeof(char) * MAX_COMMAND_LENGTH);
+     
+ 
+     //xTaskCreate(vtask_blink_led,"vtask_blink_led",2048,NULL,5,NULL);
+     xTaskCreate(commandTask, "commandTask", 10240, NULL, 15, NULL);
 
     printf ("Task Blink Criada");
 
+   // Inicializa o Wi-Fi
     wifi_init();
 
 
