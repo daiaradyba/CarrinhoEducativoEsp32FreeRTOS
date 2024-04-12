@@ -84,6 +84,41 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
     return ESP_OK;
 }
 
+void post_finished_to_firebase(const char* message) {
+    const char* url = "https://carrinhoeducativo-default-rtdb.firebaseio.com/result.json";
+    char post_data[256];
+
+    //const char* post_data = "{\"message\": \"Terminei de processar todos os comandos.\"}";
+    snprintf(post_data, sizeof(post_data), "{\"message\": \"%s\"}", message);
+
+    esp_http_client_config_t config = {
+        .url = url,
+        .method = HTTP_METHOD_PUT, //Se usar POST ele cria um novo ID pra cada requisição
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (client == NULL) {
+        ESP_LOGE(TAG, "Failed to initialize HTTP client");
+        return;
+    }
+
+    esp_http_client_set_post_field(client, post_data, strlen(post_data));
+    esp_err_t err = esp_http_client_perform(client);
+
+    if (err == ESP_OK) {
+        int status_code = esp_http_client_get_status_code(client);
+        if (status_code == 200) {
+            ESP_LOGI(TAG, "Successfully posted status to Firebase.");
+        } else {
+            ESP_LOGE(TAG, "HTTP POST failed with status code: %d", status_code);
+        }
+    } else {
+        ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
+    }
+
+    esp_http_client_cleanup(client);
+}
+
 void http_get_task(void *pvParameters)
 {
 
@@ -125,6 +160,7 @@ void http_get_task(void *pvParameters)
             esp_err_t err = esp_http_client_perform(client);
         if (err == ESP_OK) {
          ESP_LOGI(TAG, "Got data: %s", output_buffer);
+          post_finished_to_firebase("Comandos Recebidos");
         if (xQueueSend(commandQueue, &output_buffer, portMAX_DELAY) != pdPASS) {
             ESP_LOGE(TAG, "Failed to send command to the queue");
             }
@@ -225,6 +261,8 @@ void vtask_blink_led(void *pvParameter){
 
 }
 
+
+
 void execute_command(const char* command, int value) {
     
      esp_rom_gpio_pad_select_gpio (GPIO_NUM_32);
@@ -264,8 +302,10 @@ void process_commands(const char* commands) {
         execute_command(command, value);
         token = strtok(NULL, "\\n");
     }
-
+      post_finished_to_firebase("Finalizado");
+     ESP_LOGI(TAG, "Terminei de processar todos os comandos.");
     free(commands_copy);
+   
 }
 
 void commandTask(void *pvParameters) {
