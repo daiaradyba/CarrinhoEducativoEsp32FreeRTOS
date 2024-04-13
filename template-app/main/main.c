@@ -25,6 +25,9 @@ static const char *TAG = "wifi_http_example";
 QueueHandle_t queue_tempo;
 QueueHandle_t commandQueue;
 
+int statusLed1 = -1; 
+int statusLed2 = -1;
+
 void config_adc(){
     adc1_config_width(ADC_WIDTH_BIT_12);//Configura a resolucao
         esp_adc_cal_value_t adc_type = esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_12, ADC_WIDTH_BIT_12, 1100, &adc_cal);//Inicializa a estrutura de calibracao
@@ -284,9 +287,43 @@ void vtask_blink_led(void *pvParameter){
 
 }
 
+int ler_adc(){
+        int voltage = 0;
+        for (int i = 0; i < 100; i++){
+            voltage += adc1_get_raw(ADC1_CHANNEL_0);//Obtem o valor RAW do ADC
+            sys_delay_ms(30);
+        }
+        voltage /= 100;
+        voltage = esp_adc_cal_raw_to_voltage(voltage, &adc_cal);//Converte e calibra o valor lido (RAW) para mV
+        ESP_LOGI("ADC CAL", "Read mV: %d", voltage);//Mostra a leitura calibrada no Serial Monitor
+         char valor_lido[256]; // Ajuste o tamanho conforme necessário
+        snprintf(valor_lido, sizeof(valor_lido), "Leitura;%d", voltage);
+        post_finished_to_firebase(valor_lido);
+        vTaskDelay(pdMS_TO_TICKS(10));   
+        return voltage;
+    
+}
+
+int status_out(int porta){
+    int status = -1;
+    switch (porta) {
+    case 1:
+        status = statusLed1;
+        break;
+    case 2:
+        status = statusLed2;
+        break;
+    default:
+       ESP_LOGI(TAG, "Porta Invalida");
+        break;
+    }
+    return status;
+
+}
 
 
-void execute_command(const char* command, int value) {
+
+int execute_command(const char* command, int value) {
     
      esp_rom_gpio_pad_select_gpio (GPIO_NUM_32);
      esp_rom_gpio_pad_select_gpio (GPIO_NUM_33);
@@ -308,50 +345,147 @@ void execute_command(const char* command, int value) {
    ESP_LOGI(TAG, "Comando dentro execute: %s", command);
     if (strcmp(command, "ativar") == 0 || strcmp(command, "\"ativar") == 0  ) {
         gpio_set_level(gpio_to_use, 1); // Assume que "1" ativa e "0" desativa
-    ESP_LOGI(TAG, "Ativei");
+
+         ESP_LOGI(TAG, "Ativei");
+         switch (gpio_to_use)
+         {
+         case GPIO_NUM_32:
+            statusLed1 =1;
+            break;
+         case GPIO_NUM_33:
+            statusLed2 =1;
+            break;
+         
+         default:
+            break;
+         }
 
     } else if (strcmp(command, "desativar") == 0 || strcmp(command, "\"desativar") == 0  ) {
         gpio_set_level(gpio_to_use, 0); // Assume que "1" desativa e "0" mantém ativado
+        switch (gpio_to_use)
+         {
+         case GPIO_NUM_32:
+            statusLed1 =0;
+            break;
+         case GPIO_NUM_33:
+            statusLed2 =0;
+            break;
+         
+         default:
+            break;
+         }
+     
     } else if (strcmp(command, "esperar") == 0 || strcmp(command, "\"esperar") == 0) {
         vTaskDelay(pdMS_TO_TICKS(value * 1000)); // Espera pelo número especificado de segundos
+      
     }
     else if (strcmp(command, "ler") == 0 || strcmp(command, "\"ler") == 0) {
-        int voltage = 0;
-        for (int i = 0; i < 100; i++)
-        {
-            voltage += adc1_get_raw(ADC1_CHANNEL_0);//Obtem o valor RAW do ADC
-            sys_delay_ms(30);
-        }
-        voltage /= 100;
+        int voltage = ler_adc();
  
- 
-        voltage = esp_adc_cal_raw_to_voltage(voltage, &adc_cal);//Converte e calibra o valor lido (RAW) para mV
-        ESP_LOGI("ADC CAL", "Read mV: %d", voltage);//Mostra a leitura calibrada no Serial Monitor
-         char valor_lido[256]; // Ajuste o tamanho conforme necessário
-        snprintf(valor_lido, sizeof(valor_lido), "Leitura;%d", voltage);
-    
-        
-        post_finished_to_firebase(valor_lido);
-    
- 
- 
- 
-        vTaskDelay(pdMS_TO_TICKS(1000));//Delay 1seg
     }
+    else if (strncmp(command, "se-", 3) == 0  || strncmp(command, "\"se-",4) == 0) {
+         ESP_LOGI(TAG, "Condição tipo Se");
+        char* cond1 ="a";
+        char* cond2 = "b";
+        int value_cond1 = -1;
+        int value_cond2 = -1;
+        if(strncmp(command, "se-", 3) == 0){
+            char* condPart = strchr(command + 3, '=');  // Encontra o '=' na string
+            if (condPart) {
+                *condPart = '\0';  // Termina a string para isolar a parte antes do '='
+                condPart++;  // Move para o caractere após o '='
+                char* endPart = strchr(condPart, ';');  // Encontra o ';' na string
+                if (endPart) {
+                     *endPart = '\0';  // Termina a string para isolar a parte antes do ';'
+                 }
+
+            // Agora temos as partes isoladas
+            cond1 = command + 3;  // Aponta para o início da condição
+            cond2 = condPart;  // Aponta para o início do valor de status
+            }
+    }
+        if(strncmp(command, "\"se-",4) == 0){
+            char* condPart = strchr(command + 4, '=');  // Encontra o '=' na string
+            if (condPart) {
+                *condPart = '\0';  // Termina a string para isolar a parte antes do '='
+                condPart++;  // Move para o caractere após o '='
+                char* endPart = strchr(condPart, ';');  // Encontra o ';' na string
+                if (endPart) {
+                     *endPart = '\0';  // Termina a string para isolar a parte antes do ';'
+                 }
+
+            // Agora temos as partes isoladas
+            cond1 = command + 4;  // Aponta para o início da condição
+            cond2 = condPart;  // Aponta para o início do valor de status
+            }
+    }
+
+    if(strncmp(cond1, "LED",3) == 0|| strncmp(cond2, "LED",3) == 0){
+        int selecionaLed;
+        int status;
+        if(strncmp(cond1, "LED",3) == 0){
+             sscanf(cond1, "LED*%d",&selecionaLed);
+        }
+        else if (strncmp(cond2, "LED",3) == 0){
+             sscanf(cond2, "LED*%d",&selecionaLed);
+        }
+
+        ESP_LOGI(TAG, "LEDSelecionado: %d", selecionaLed);
+        status = status_out(selecionaLed);
+         ESP_LOGI(TAG, "LED  %d Status %d ", selecionaLed,status);
+        value_cond1 = status;
+    }
+
+    if(strncmp(cond1, "STATUS",6) == 0 || strncmp(cond2, "STATUS",6) == 0){
+        int status_seleciona;
+        if(strncmp(cond1, "STATUS",6) == 0){
+              sscanf(cond1, "STATUS*%d",&status_seleciona);
+        }
+        if(strncmp(cond2, "STATUS",6) == 0){
+              sscanf(cond2, "STATUS*%d",&status_seleciona);
+        }
+         ESP_LOGI(TAG, "STATUS SELECIONA  %d  ",status_seleciona);
+        value_cond2 = status_seleciona;
+    }
+
+
+        ESP_LOGI(TAG, "Cond1: %s", cond1);
+        ESP_LOGI(TAG, "Cond2: %s", cond2);
+
+        if(value_cond1 == value_cond2){
+            return 0;
+        }
+        else{
+            return 10;
+        }
+    vTaskDelay(pdMS_TO_TICKS(50));   
+    }
+return 0;
 }
 
 
 void process_commands(const char* commands) {
     char* commands_copy = strdup(commands); // Duplica a string para não alterar a original
     char* token = strtok(commands_copy, "\\n");
+    int verifica = 0; //valor para avaliar if e while 
 
     while (token != NULL) {
-        char command[10];
+        char command[20];
         int value;
         sscanf(token, "%[^;];%d", command, &value);
          ESP_LOGI(TAG, "Comando: %s", command);
-        execute_command(command, value);
-        token = strtok(NULL, "\\n");
+        verifica = execute_command(command, value);
+        if(verifica==0){
+         token = strtok(NULL, "\\n");
+        }
+        else if(verifica==10){
+            for(int i = 0; i<=value;i++){
+            
+                 token = strtok(NULL, "\\n");
+                   ESP_LOGI(TAG, "Removendo comando %d",i);
+            }
+        }
+       
     }
       post_finished_to_firebase("Finalizado");
      ESP_LOGI(TAG, "Terminei de processar todos os comandos.");
