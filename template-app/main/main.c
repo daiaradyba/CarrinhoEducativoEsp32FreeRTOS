@@ -10,16 +10,39 @@
 #include "driver/gpio.h"
 #include "freertos/queue.h"
 
+#include <driver/adc.h>
+#include <esp_adc_cal.h>
+
 #define WIFI_SSID      "Dyba_Bernardelli_2G"
 #define WIFI_PASS      "123581321"
 #define MAX_HTTP_RECV_BUFFER 1024
 #define MAX_COMMAND_LENGTH 1024
+
+esp_adc_cal_characteristics_t adc_cal;//Estrutura que contem as informacoes para calibracao
 
 static const char *TAG = "wifi_http_example";
 
 QueueHandle_t queue_tempo;
 QueueHandle_t commandQueue;
 
+void config_adc(){
+    adc1_config_width(ADC_WIDTH_BIT_12);//Configura a resolucao
+        esp_adc_cal_value_t adc_type = esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_12, ADC_WIDTH_BIT_12, 1100, &adc_cal);//Inicializa a estrutura de calibracao
+ 
+    if (adc_type == ESP_ADC_CAL_VAL_EFUSE_VREF)
+    {
+        ESP_LOGI("ADC CAL", "Vref eFuse encontrado: V");
+    }
+    else if (adc_type == ESP_ADC_CAL_VAL_EFUSE_TP)
+    {
+        ESP_LOGI("ADC CAL", "Two Point eFuse encontrado");
+    }
+    else
+    {
+        ESP_LOGW("ADC CAL", "Nada encontrado, utilizando Vref padrao: V");
+    }
+    
+}
 esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
 
     static char *output_buffer;  // Buffer to store response of http request from event handler
@@ -268,7 +291,12 @@ void execute_command(const char* command, int value) {
      esp_rom_gpio_pad_select_gpio (GPIO_NUM_32);
      esp_rom_gpio_pad_select_gpio (GPIO_NUM_33);
 
- 
+    // Preparando a mensagem a ser enviada para o Firebase
+    char message[256]; // Ajuste o tamanho conforme necessário
+    snprintf(message, sizeof(message), "Comando;%s;%d", command, value);
+    
+    ESP_LOGI(TAG, "Comando dentro execute: %s %d", command, value);
+    post_finished_to_firebase(message);
 
     //Define como saída
      gpio_set_direction (GPIO_NUM_32, GPIO_MODE_OUTPUT);
@@ -286,6 +314,29 @@ void execute_command(const char* command, int value) {
         gpio_set_level(gpio_to_use, 0); // Assume que "1" desativa e "0" mantém ativado
     } else if (strcmp(command, "esperar") == 0 || strcmp(command, "\"esperar") == 0) {
         vTaskDelay(pdMS_TO_TICKS(value * 1000)); // Espera pelo número especificado de segundos
+    }
+    else if (strcmp(command, "ler") == 0 || strcmp(command, "\"ler") == 0) {
+        int voltage = 0;
+        for (int i = 0; i < 100; i++)
+        {
+            voltage += adc1_get_raw(ADC1_CHANNEL_0);//Obtem o valor RAW do ADC
+            sys_delay_ms(30);
+        }
+        voltage /= 100;
+ 
+ 
+        voltage = esp_adc_cal_raw_to_voltage(voltage, &adc_cal);//Converte e calibra o valor lido (RAW) para mV
+        ESP_LOGI("ADC CAL", "Read mV: %d", voltage);//Mostra a leitura calibrada no Serial Monitor
+         char valor_lido[256]; // Ajuste o tamanho conforme necessário
+        snprintf(valor_lido, sizeof(valor_lido), "Leitura;%d", voltage);
+    
+        
+        post_finished_to_firebase(valor_lido);
+    
+ 
+ 
+ 
+        vTaskDelay(pdMS_TO_TICKS(1000));//Delay 1seg
     }
 }
 
@@ -326,7 +377,7 @@ void app_main(void) {
      queue_tempo = xQueueCreate(10, sizeof(int));
      commandQueue = xQueueCreate(10, sizeof(char) * MAX_COMMAND_LENGTH);
      
- 
+    config_adc();
      //xTaskCreate(vtask_blink_led,"vtask_blink_led",2048,NULL,5,NULL);
      xTaskCreate(commandTask, "commandTask", 10240, NULL, 15, NULL);
 
