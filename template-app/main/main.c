@@ -289,7 +289,7 @@ void vtask_blink_led(void *pvParameter){
 
 int ler_adc(){
         int voltage = 0;
-        for (int i = 0; i < 100; i++){
+        for (int i = 0; i < 10; i++){
             voltage += adc1_get_raw(ADC1_CHANNEL_0);//Obtem o valor RAW do ADC
             sys_delay_ms(30);
         }
@@ -333,7 +333,7 @@ int execute_command(const char* command, int value) {
     snprintf(message, sizeof(message), "Comando;%s;%d", command, value);
     
     ESP_LOGI(TAG, "Comando dentro execute: %s %d", command, value);
-    post_finished_to_firebase(message);
+   //post_finished_to_firebase(message);
 
     //Define como saída
      gpio_set_direction (GPIO_NUM_32, GPIO_MODE_OUTPUT);
@@ -384,13 +384,19 @@ int execute_command(const char* command, int value) {
  
     }
     else if (strncmp(command, "se-", 3) == 0  || strncmp(command, "\"se-",4) == 0) {
+        post_finished_to_firebase(message);
+        char compara = 'a'; // char = < > 
          ESP_LOGI(TAG, "Condição tipo Se");
-        char* cond1 ="a";
-        char* cond2 = "b";
-        int value_cond1 = -1;
-        int value_cond2 = -1;
+        int flag_condicoes = 0;
+        int num_condicoes = 2;
+        char* condicoes[] = {"a","b"};
+        int value_condicoes[num_condicoes];
+      
         if(strncmp(command, "se-", 3) == 0){
-            char* condPart = strchr(command + 3, '=');  // Encontra o '=' na string
+            sscanf(command, "se-%c",&compara);
+              ESP_LOGI(TAG, "Compara %c",compara);
+            char* condPart = strchr(command + 4, compara);  // Encontra o caracter compara na string
+            
             if (condPart) {
                 *condPart = '\0';  // Termina a string para isolar a parte antes do '='
                 condPart++;  // Move para o caractere após o '='
@@ -400,12 +406,14 @@ int execute_command(const char* command, int value) {
                  }
 
             // Agora temos as partes isoladas
-            cond1 = command + 3;  // Aponta para o início da condição
-            cond2 = condPart;  // Aponta para o início do valor de status
+            condicoes[0] = command + 4;  // Aponta para o início da condição
+            condicoes[1] = condPart;  // Aponta para o início do valor de status
             }
     }
         if(strncmp(command, "\"se-",4) == 0){
-            char* condPart = strchr(command + 4, '=');  // Encontra o '=' na string
+             sscanf(command, "se-%c",&compara);
+             ESP_LOGI(TAG, "Compara %c",compara);
+            char* condPart = strchr(command + 5, compara);  // Encontra o '=' na string
             if (condPart) {
                 *condPart = '\0';  // Termina a string para isolar a parte antes do '='
                 condPart++;  // Move para o caractere após o '='
@@ -415,49 +423,122 @@ int execute_command(const char* command, int value) {
                  }
 
             // Agora temos as partes isoladas
-            cond1 = command + 4;  // Aponta para o início da condição
-            cond2 = condPart;  // Aponta para o início do valor de status
+            condicoes[0] = command + 5;  // Aponta para o início da condição
+            condicoes[1] = condPart;  // Aponta para o início do valor de status
             }
-    }
-
-    if(strncmp(cond1, "LED",3) == 0|| strncmp(cond2, "LED",3) == 0){
-        int selecionaLed;
-        int status;
-        if(strncmp(cond1, "LED",3) == 0){
-             sscanf(cond1, "LED*%d",&selecionaLed);
         }
-        else if (strncmp(cond2, "LED",3) == 0){
-             sscanf(cond2, "LED*%d",&selecionaLed);
+
+    if(strncmp( condicoes[0], "LED",3) == 0|| strncmp( condicoes[1], "LED",3) == 0){
+        int selecionaLed;
+        int status_seleciona;
+        if(strncmp( condicoes[0], "LED",3) == 0){
+             sscanf( condicoes[0], "LED*%d",&selecionaLed);
+        }
+        else if (strncmp( condicoes[1], "LED",3) == 0){
+             sscanf( condicoes[1], "LED*%d",&selecionaLed);
         }
 
         ESP_LOGI(TAG, "LEDSelecionado: %d", selecionaLed);
-        status = status_out(selecionaLed);
-         ESP_LOGI(TAG, "LED  %d Status %d ", selecionaLed,status);
-        value_cond1 = status;
+        status_seleciona = status_out(selecionaLed);
+         ESP_LOGI(TAG, "LED  %d Status %d ", selecionaLed,status_seleciona);
+        
+        if(flag_condicoes<num_condicoes){
+        value_condicoes[flag_condicoes] = status_seleciona;
+        flag_condicoes++;
+        
+        }
+
     }
 
-    if(strncmp(cond1, "STATUS",6) == 0 || strncmp(cond2, "STATUS",6) == 0){
+    //STATUS É ATIVADO 1 OU DESATIVADO 0 
+    if(strncmp( condicoes[0], "STATUS",6) == 0 || strncmp( condicoes[1], "STATUS",6) == 0){
         int status_seleciona;
-        if(strncmp(cond1, "STATUS",6) == 0){
-              sscanf(cond1, "STATUS*%d",&status_seleciona);
+        if(strncmp( condicoes[0], "STATUS",6) == 0){
+              sscanf( condicoes[0], "STATUS*%d",&status_seleciona);
         }
-        if(strncmp(cond2, "STATUS",6) == 0){
-              sscanf(cond2, "STATUS*%d",&status_seleciona);
+        if(strncmp( condicoes[1], "STATUS",6) == 0){
+              sscanf( condicoes[1], "STATUS*%d",&status_seleciona);
         }
          ESP_LOGI(TAG, "STATUS SELECIONA  %d  ",status_seleciona);
-        value_cond2 = status_seleciona;
+        if(flag_condicoes<num_condicoes){
+        value_condicoes[flag_condicoes] = status_seleciona;
+        flag_condicoes++;
+        
+        }
+    }
+
+    //SENSOR É A ENTRADA DO ADC
+    if(strncmp( condicoes[0], "SENSOR",6) == 0 || strncmp( condicoes[1], "SENSOR",6) == 0){
+        int status_seleciona;
+        if(strncmp( condicoes[0], "SENSOR",6) == 0){
+              sscanf( condicoes[0], "SENSOR*%d",&status_seleciona);
+        }
+        if(strncmp( condicoes[1], "SENSOR",6) == 0){
+              sscanf( condicoes[1], "SENSOR*%d",&status_seleciona);
+        }
+         ESP_LOGI(TAG, "SENSOR SELECIONA  %d  ",status_seleciona);
+        if(flag_condicoes<num_condicoes){
+        value_condicoes[flag_condicoes] = ler_adc(); //melhorar funcao ler_adc
+        flag_condicoes++;
+        
+        }
+    }
+
+        //SENSOR É A ENTRADA DO ADC
+        //sscanf(input, "%*[^=]=VALOR*%f", &valor) == 1 %*[^=] é um especificador de formato que lê e ignora caracteres até encontrar um sinal de igual =. O asterisco (*) indica que esses caracteres devem ser ignorados (não armazenados).
+    if(strncmp( condicoes[0], "VALOR",5) == 0 || strncmp( condicoes[1], "VALOR",5) == 0){
+        int MAX_DIGITS = 10;
+        int valor_fatorado[MAX_DIGITS];
+        int status_seleciona;
+        const char* prefix = "VALOR*";
+        char* start =""; 
+        if(strncmp( condicoes[0], "VALOR",5) == 0){
+              start =  strstr(condicoes[0], prefix);
+              sscanf( condicoes[0], "VALOR*%d",&status_seleciona);
+        }
+        if(strncmp( condicoes[1], "VALOR",5) == 0){
+              start =  strstr(condicoes[1], prefix);
+              sscanf( condicoes[1], "VALOR*%d",&status_seleciona);
+        }
+
+
+         ESP_LOGI(TAG, "VALOR   %d  ",status_seleciona);
+          ESP_LOGI(TAG, "VALOR FATORA   i0- %d i1- %d i2- %d i3- %d  i4- %d   ", valor_fatorado[0],valor_fatorado[1],valor_fatorado[2],valor_fatorado[3],valor_fatorado[4]);
+        if(flag_condicoes<num_condicoes){
+        value_condicoes[flag_condicoes] = status_seleciona; //melhorar funcao ler_adc
+        flag_condicoes++;
+        
+        }
     }
 
 
-        ESP_LOGI(TAG, "Cond1: %s", cond1);
-        ESP_LOGI(TAG, "Cond2: %s", cond2);
+        ESP_LOGI(TAG, "Cond1: %s Valor %d",  condicoes[0],value_condicoes[0]);
+        ESP_LOGI(TAG, "Cond2: %s Valor %d",  condicoes[1],value_condicoes[1]);
 
-        if(value_cond1 == value_cond2){
-            return 0;
+        switch (compara)
+        {
+        case '=':
+            if(value_condicoes[0] == value_condicoes[1]){
+                return 0;
+            }
+            else{
+                return 10;
+            }
+            break;
+        case '<':
+            if(value_condicoes[0] < value_condicoes[1]){
+                return 0;
+            }
+            else{
+                return 10;
+            }
+            break;
+        
+        default:
+            break;
         }
-        else{
-            return 10;
-        }
+
+
     vTaskDelay(pdMS_TO_TICKS(50));   
     }
 return 0;
@@ -470,10 +551,10 @@ void process_commands(const char* commands) {
     int verifica = 0; //valor para avaliar if e while 
 
     while (token != NULL) {
-        char command[20];
+        char command[30];
         int value;
         sscanf(token, "%[^;];%d", command, &value);
-         ESP_LOGI(TAG, "Comando: %s", command);
+         ESP_LOGI(TAG, "Comando no process command: %s", command);
         verifica = execute_command(command, value);
         if(verifica==0){
          token = strtok(NULL, "\\n");
