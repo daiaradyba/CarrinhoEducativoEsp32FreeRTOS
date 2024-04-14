@@ -287,6 +287,7 @@ void vtask_blink_led(void *pvParameter){
 
 }
 
+
 int ler_adc(){
         int voltage = 0;
         for (int i = 0; i < 10; i++){
@@ -321,113 +322,12 @@ int status_out(int porta){
 
 }
 
-
-
-int execute_command(const char* command, int value) {
-    
-     esp_rom_gpio_pad_select_gpio (GPIO_NUM_32);
-     esp_rom_gpio_pad_select_gpio (GPIO_NUM_33);
-
-    // Preparando a mensagem a ser enviada para o Firebase
-    char message[256]; // Ajuste o tamanho conforme necessário
-    snprintf(message, sizeof(message), "Comando;%s;%d", command, value);
-    
-    ESP_LOGI(TAG, "Comando dentro execute: %s %d", command, value);
-   //post_finished_to_firebase(message);
-
-    //Define como saída
-     gpio_set_direction (GPIO_NUM_32, GPIO_MODE_OUTPUT);
-     gpio_set_direction (GPIO_NUM_33, GPIO_MODE_OUTPUT);
-
-     // Seleciona o GPIO baseado no valor.
-    gpio_num_t gpio_to_use = (value == 1) ? GPIO_NUM_32 : GPIO_NUM_33;
-
-   ESP_LOGI(TAG, "Comando dentro execute: %s", command);
-    if (strcmp(command, "ativar") == 0 || strcmp(command, "\"ativar") == 0  ) {
-        gpio_set_level(gpio_to_use, 1); // Assume que "1" ativa e "0" desativa
-
-         ESP_LOGI(TAG, "Ativei");
-         switch (gpio_to_use)
-         {
-         case GPIO_NUM_32:
-            statusLed1 =1;
-            break;
-         case GPIO_NUM_33:
-            statusLed2 =1;
-            break;
-         
-         default:
-            break;
-         }
-
-    } else if (strcmp(command, "desativar") == 0 || strcmp(command, "\"desativar") == 0  ) {
-        gpio_set_level(gpio_to_use, 0); // Assume que "1" desativa e "0" mantém ativado
-        switch (gpio_to_use)
-         {
-         case GPIO_NUM_32:
-            statusLed1 =0;
-            break;
-         case GPIO_NUM_33:
-            statusLed2 =0;
-            break;
-         
-         default:
-            break;
-         }
-     
-    } else if (strcmp(command, "esperar") == 0 || strcmp(command, "\"esperar") == 0) {
-        vTaskDelay(pdMS_TO_TICKS(value * 1000)); // Espera pelo número especificado de segundos
-      
-    }
-    else if (strcmp(command, "ler") == 0 || strcmp(command, "\"ler") == 0) {
-        int voltage = ler_adc();
- 
-    }
-    else if (strncmp(command, "se-", 3) == 0  || strncmp(command, "\"se-",4) == 0) {
-        post_finished_to_firebase(message);
-        char compara = 'a'; // char = < > 
-         ESP_LOGI(TAG, "Condição tipo Se");
+void verifica_condicoes(const char* command, int value, char compara, char**condicoes,int* value_condicoes){
+        //post_finished_to_firebase(message);
         int flag_condicoes = 0;
         int num_condicoes = 2;
-        char* condicoes[] = {"a","b"};
-        int value_condicoes[num_condicoes];
-      
-        if(strncmp(command, "se-", 3) == 0){
-            sscanf(command, "se-%c",&compara);
-              ESP_LOGI(TAG, "Compara %c",compara);
-            char* condPart = strchr(command + 4, compara);  // Encontra o caracter compara na string
-            
-            if (condPart) {
-                *condPart = '\0';  // Termina a string para isolar a parte antes do '='
-                condPart++;  // Move para o caractere após o '='
-                char* endPart = strchr(condPart, ';');  // Encontra o ';' na string
-                if (endPart) {
-                     *endPart = '\0';  // Termina a string para isolar a parte antes do ';'
-                 }
-
-            // Agora temos as partes isoladas
-            condicoes[0] = command + 4;  // Aponta para o início da condição
-            condicoes[1] = condPart;  // Aponta para o início do valor de status
-            }
-    }
-        if(strncmp(command, "\"se-",4) == 0){
-             sscanf(command, "se-%c",&compara);
-             ESP_LOGI(TAG, "Compara %c",compara);
-            char* condPart = strchr(command + 5, compara);  // Encontra o '=' na string
-            if (condPart) {
-                *condPart = '\0';  // Termina a string para isolar a parte antes do '='
-                condPart++;  // Move para o caractere após o '='
-                char* endPart = strchr(condPart, ';');  // Encontra o ';' na string
-                if (endPart) {
-                     *endPart = '\0';  // Termina a string para isolar a parte antes do ';'
-                 }
-
-            // Agora temos as partes isoladas
-            condicoes[0] = command + 5;  // Aponta para o início da condição
-            condicoes[1] = condPart;  // Aponta para o início do valor de status
-            }
-        }
-
+        //int value_condicoes[num_condicoes];
+    ESP_LOGI(TAG, "Condicoes dentro do verifica --- Cond1 %s Cond2 %s",  condicoes[0],condicoes[1]);
     if(strncmp( condicoes[0], "LED",3) == 0|| strncmp( condicoes[1], "LED",3) == 0){
         int selecionaLed;
         int status_seleciona;
@@ -515,6 +415,115 @@ int execute_command(const char* command, int value) {
         ESP_LOGI(TAG, "Cond1: %s Valor %d",  condicoes[0],value_condicoes[0]);
         ESP_LOGI(TAG, "Cond2: %s Valor %d",  condicoes[1],value_condicoes[1]);
 
+       // return value_condicoes;
+}
+
+
+
+int execute_command(const char* command, int value) {
+    
+     esp_rom_gpio_pad_select_gpio (GPIO_NUM_32);
+     esp_rom_gpio_pad_select_gpio (GPIO_NUM_33);
+
+    // Preparando a mensagem a ser enviada para o Firebase
+    char message[256]; // Ajuste o tamanho conforme necessário
+    snprintf(message, sizeof(message), "Comando;%s;%d", command, value);
+    
+    ESP_LOGI(TAG, "Comando dentro execute: %s %d", command, value);
+   //post_finished_to_firebase(message);
+
+    //Define como saída
+     gpio_set_direction (GPIO_NUM_32, GPIO_MODE_OUTPUT);
+     gpio_set_direction (GPIO_NUM_33, GPIO_MODE_OUTPUT);
+
+     // Seleciona o GPIO baseado no valor.
+    gpio_num_t gpio_to_use = (value == 1) ? GPIO_NUM_32 : GPIO_NUM_33;
+
+   ESP_LOGI(TAG, "Comando dentro execute: %s", command);
+    if (strcmp(command, "ativar") == 0 || strcmp(command, "\"ativar") == 0  ) {
+        gpio_set_level(gpio_to_use, 1); // Assume que "1" ativa e "0" desativa
+
+         ESP_LOGI(TAG, "Ativei");
+         switch (gpio_to_use)
+         {
+         case GPIO_NUM_32:
+            statusLed1 =1;
+            break;
+         case GPIO_NUM_33:
+            statusLed2 =1;
+            break;
+         
+         default:
+            break;
+         }
+
+    } else if (strcmp(command, "desativar") == 0 || strcmp(command, "\"desativar") == 0  ) {
+        gpio_set_level(gpio_to_use, 0); // Assume que "1" desativa e "0" mantém ativado
+        switch (gpio_to_use)
+         {
+         case GPIO_NUM_32:
+            statusLed1 =0;
+            break;
+         case GPIO_NUM_33:
+            statusLed2 =0;
+            break;
+         
+         default:
+            break;
+         }
+     
+    } else if (strcmp(command, "esperar") == 0 || strcmp(command, "\"esperar") == 0) {
+        vTaskDelay(pdMS_TO_TICKS(value * 1000)); // Espera pelo número especificado de segundos
+      
+    }
+    else if (strcmp(command, "ler") == 0 || strcmp(command, "\"ler") == 0) {
+        int voltage = ler_adc();
+ 
+    }
+    else if (strncmp(command, "se-", 3) == 0  || strncmp(command, "\"se-",4) == 0) {
+        char compara = 'a'; // char = < > 
+         ESP_LOGI(TAG, "Condição tipo Se");
+
+        char* condicoes[] = {"a","b"};
+        
+      ESP_LOGI(TAG, "Comando dentro da condição se: %s", command);
+        if(strncmp(command, "se-", 3) == 0){
+            sscanf(command, "se-%c",&compara);
+              ESP_LOGI(TAG, "Compara %c",compara);
+            char* condPart = strchr(command + 4, compara);  // Encontra o caracter compara na string
+            
+            if (condPart) {
+                *condPart = '\0';  // Termina a string para isolar a parte antes do '='
+                condPart++;  // Move para o caractere após o '='
+                char* endPart = strchr(condPart, ';');  // Encontra o ';' na string
+                if (endPart) {
+                     *endPart = '\0';  // Termina a string para isolar a parte antes do ';'
+                 }
+
+            // Agora temos as partes isoladas
+            condicoes[0] = command + 4;  // Aponta para o início da condição
+            condicoes[1] = condPart;  // Aponta para o início do valor de status
+            }
+    }
+        if(strncmp(command, "\"se-",4) == 0){
+             sscanf(command, "se-%c",&compara);
+             ESP_LOGI(TAG, "Compara %c",compara);
+            char* condPart = strchr(command + 5, compara);  // Encontra o '=' na string
+            if (condPart) {
+                *condPart = '\0';  // Termina a string para isolar a parte antes do '='
+                condPart++;  // Move para o caractere após o '='
+                char* endPart = strchr(condPart, ';');  // Encontra o ';' na string
+                if (endPart) {
+                     *endPart = '\0';  // Termina a string para isolar a parte antes do ';'
+                 }
+
+            // Agora temos as partes isoladas
+            condicoes[0] = command + 5;  // Aponta para o início da condição
+            condicoes[1] = condPart;  // Aponta para o início do valor de status
+            }
+        }
+        int  value_condicoes[2];
+        verifica_condicoes(command, value,compara,condicoes,value_condicoes);
         switch (compara)
         {
         case '=':
@@ -541,36 +550,197 @@ int execute_command(const char* command, int value) {
 
     vTaskDelay(pdMS_TO_TICKS(50));   
     }
+    else if (strncmp(command, "while-", 6) == 0  || strncmp(command, "\"while-",7) == 0) {
+        char compara = 'a'; // char = < > 
+         ESP_LOGI(TAG, "Condição tipo WHILE");
+
+        char* condicoes[] = {"a","b"};
+        
+      
+        if(strncmp(command, "while-", 6) == 0){
+            sscanf(command, "while-%c",&compara);
+              ESP_LOGI(TAG, "Compara %c",compara);
+            char* condPart = strchr(command + 7, compara);  // Encontra o caracter compara na string
+            
+            if (condPart) {
+                *condPart = '\0';  // Termina a string para isolar a parte antes do '='
+                condPart++;  // Move para o caractere após o '='
+                char* endPart = strchr(condPart, ';');  // Encontra o ';' na string
+                if (endPart) {
+                     *endPart = '\0';  // Termina a string para isolar a parte antes do ';'
+                 }
+
+            // Agora temos as partes isoladas
+            condicoes[0] = command + 7;  // Aponta para o início da condição
+            condicoes[1] = condPart;  // Aponta para o início do valor de status
+            }
+    }
+        if(strncmp(command, "\"while-",7) == 0){
+             sscanf(command, "se-%c",&compara);
+             ESP_LOGI(TAG, "Compara %c",compara);
+            char* condPart = strchr(command + 8, compara);  // Encontra o '=' na string
+            if (condPart) {
+                *condPart = '\0';  // Termina a string para isolar a parte antes do '='
+                condPart++;  // Move para o caractere após o '='
+                char* endPart = strchr(condPart, ';');  // Encontra o ';' na string
+                if (endPart) {
+                     *endPart = '\0';  // Termina a string para isolar a parte antes do ';'
+                 }
+
+            // Agora temos as partes isoladas
+            condicoes[0] = command + 8;  // Aponta para o início da condição
+            condicoes[1] = condPart;  // Aponta para o início do valor de status
+            }
+        }
+        int  value_condicoes[2];
+        verifica_condicoes(command, value,compara,condicoes,value_condicoes);
+        switch (compara)
+        {
+        case '=':
+            if(value_condicoes[0] == value_condicoes[1]){
+                return 20; //para entrar no verifica while 
+            }
+            else{
+                return 21; //para eliminar proximas 
+            }
+            break;
+        case '<':
+            if(value_condicoes[0] < value_condicoes[1]){
+                return 20;
+            }
+            else{
+                return 21; //para eliminar proximas 
+            }
+            break;
+        
+        default:
+            break;
+        }
+
+
+
+}
 return 0;
+}
+
+void process_commands_while(const char* commands_while, int n_comandos, int qnt_strok_while) {
+   
+       
+    static char* current_position_while = NULL; // Para manter a posição atual entre chamadas
+    
+    current_position_while = strdup(commands_while);
+    ESP_LOGI(TAG, "Current position do while: %s", current_position_while);
+    char* token_while = strtok(current_position_while, "\\n");
+    for (int i = 0; i <= qnt_strok_while; i++) // = pra pular o while junto
+    {
+       token_while = strtok(NULL, "\\n");
+    }
+    
+    ESP_LOGI(TAG, "Token do while: %s e n_comandos; %d", token_while,n_comandos);
+    int verifica_while = 0; // Valor para avaliar if, else e while
+
+    while (token_while != NULL&&n_comandos!=0) {
+        char command_while[30];
+        int value_while;
+        sscanf(token_while, "%[^;];%d", command_while, &value_while);
+         ESP_LOGI(TAG, "Comando no process command do while: %s", command_while);
+
+        verifica_while = execute_command(command_while, value_while);
+        if(verifica_while==0){ // execucao normal 
+         token_while = strtok(NULL, "\\n");
+         n_comandos--;
+
+        }
+        else if(verifica_while==10){ //10 = remove comandos. 
+            for(int i = 0; i<=value_while;i++){
+            
+                 token_while = strtok(NULL, "\\n");
+                 n_comandos--;
+                   ESP_LOGI(TAG, "Removendo comando do while %d",i);
+                            
+            }
+        }
+
+        else if(verifica_while==20){//20 = WHILE 
+            ESP_LOGI(TAG, "Entrei num While dentro de um While");
+           
+        }     
+
+
+    }
+   
+     ESP_LOGI(TAG, "Terminei de processar todos os comandos do WHILE");
+        free(current_position_while);
+        current_position_while = NULL;
+   
 }
 
 
 void process_commands(const char* commands) {
-    char* commands_copy = strdup(commands); // Duplica a string para não alterar a original
-    char* token = strtok(commands_copy, "\\n");
-    int verifica = 0; //valor para avaliar if e while 
+   
+
+    int qnt_strtok = 0;
+    
+    static char* current_position = NULL; // Para manter a posição atual entre chamadas
+    
+    current_position = strdup(commands);
+    
+
+    char* token = strtok(current_position, "\\n");
+    int verifica = 0; // Valor para avaliar if, else e while
 
     while (token != NULL) {
         char command[30];
         int value;
         sscanf(token, "%[^;];%d", command, &value);
          ESP_LOGI(TAG, "Comando no process command: %s", command);
+
         verifica = execute_command(command, value);
-        if(verifica==0){
+        if(verifica==0){ // execucao normal 
          token = strtok(NULL, "\\n");
+         qnt_strtok ++;
+
         }
-        else if(verifica==10){
+        else if(verifica==10){ //10 = remove comandos. 
             for(int i = 0; i<=value;i++){
             
                  token = strtok(NULL, "\\n");
+                 qnt_strtok ++;
                    ESP_LOGI(TAG, "Removendo comando %d",i);
+                            
             }
+        }
+
+        else if(verifica==20){//20 = WHILE 
+            ESP_LOGI(TAG, "----------------------------------------------------------------------------");
+                
+            static char* commands_while = NULL; // Para manter a posição atual entre chamadas
+            commands_while = strdup(commands);
+
+            process_commands_while (commands,value,qnt_strtok);
+
+            free(commands_while);
+            commands_while = NULL;
+            ESP_LOGI(TAG, "----------------------------------------------------------------------------");
+        }
+        else if(verifica==21){
+                current_position = strdup(commands);
+                token = strtok(current_position, "\\n");
+                    for (int i = 0; i <= qnt_strtok; i++) // = pra pular o while junto
+                    {
+                        token = strtok(NULL, "\\n");
+                    }
+                    for (int i = 0; i < value; i++) // = pra pular o while junto
+                    {
+                        token = strtok(NULL, "\\n");
+                    }
         }
        
     }
       post_finished_to_firebase("Finalizado");
      ESP_LOGI(TAG, "Terminei de processar todos os comandos.");
-    free(commands_copy);
+        free(current_position);
+        current_position = NULL;
    
 }
 
