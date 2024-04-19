@@ -13,8 +13,8 @@
 #include <driver/adc.h>
 #include <esp_adc_cal.h>
 
-#define WIFI_SSID      "Dyba_Bernardelli_2G"
-#define WIFI_PASS      "123581321"
+#define WIFI_SSID      "Daiara"
+#define WIFI_PASS      "day12358"
 #define MAX_HTTP_RECV_BUFFER 1024
 #define MAX_COMMAND_LENGTH 1024
 
@@ -27,6 +27,15 @@ QueueHandle_t commandQueue;
 
 int statusLed1 = -1; 
 int statusLed2 = -1;
+int statusLed3 = -1; 
+int statusLed4 = -1;
+int statusLed5 = -1; 
+int statusLed6 = -1;
+int statusLed7 = -1; 
+int statusLed8 = -1;
+
+gpio_num_t gpio_to_reset = GPIO_NUM_27;
+gpio_num_t gpio_to_sobra = GPIO_NUM_19;
 
 void config_adc(){
     adc1_config_width(ADC_WIDTH_BIT_12);//Configura a resolucao
@@ -45,6 +54,35 @@ void config_adc(){
         ESP_LOGW("ADC CAL", "Nada encontrado, utilizando Vref padrao: V");
     }
     
+}
+
+void config_saidas(){
+
+     ESP_LOGI("CONFIG SAIDAS", "Iniciei funcao");
+
+    esp_rom_gpio_pad_select_gpio (GPIO_NUM_25);
+    esp_rom_gpio_pad_select_gpio (GPIO_NUM_26);
+    esp_rom_gpio_pad_select_gpio (GPIO_NUM_14);
+    esp_rom_gpio_pad_select_gpio (GPIO_NUM_12);
+    esp_rom_gpio_pad_select_gpio (GPIO_NUM_13);
+    esp_rom_gpio_pad_select_gpio (GPIO_NUM_23);
+    esp_rom_gpio_pad_select_gpio (GPIO_NUM_22);
+    esp_rom_gpio_pad_select_gpio (GPIO_NUM_21);
+
+      ESP_LOGI("CONFIG SAIDAS", "Finalizei SELECT PIO");
+
+    //Define como saída
+     gpio_set_direction (GPIO_NUM_25, GPIO_MODE_OUTPUT);
+     gpio_set_direction (GPIO_NUM_26, GPIO_MODE_OUTPUT);
+     gpio_set_direction (GPIO_NUM_14, GPIO_MODE_OUTPUT);
+     gpio_set_direction (GPIO_NUM_12, GPIO_MODE_OUTPUT);
+     gpio_set_direction (GPIO_NUM_13, GPIO_MODE_OUTPUT);
+     gpio_set_direction (GPIO_NUM_23, GPIO_MODE_OUTPUT);
+     gpio_set_direction (GPIO_NUM_22, GPIO_MODE_OUTPUT);
+     gpio_set_direction (GPIO_NUM_21, GPIO_MODE_OUTPUT);
+     
+    ESP_LOGI("CONFIG SAIDAS", "Finalizei funcao");
+
 }
 esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
 
@@ -148,13 +186,16 @@ void post_finished_to_firebase(const char* message) {
 void http_get_task(void *pvParameters)
 {
 
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_25);
+    esp_rom_gpio_pad_select_gpio (gpio_to_reset);
+    esp_rom_gpio_pad_select_gpio (gpio_to_sobra);
 
-    //Define como saída
-     gpio_set_direction (GPIO_NUM_25, GPIO_MODE_INPUT);
+    //Define como entrada
+     gpio_set_direction (gpio_to_reset, GPIO_MODE_INPUT);
+     gpio_set_direction (gpio_to_sobra, GPIO_MODE_INPUT);
 
     //PullUp para acionar quando lvl = gnd
-     gpio_set_pull_mode(GPIO_NUM_25, GPIO_PULLUP_ONLY);
+     gpio_set_pull_mode(gpio_to_reset, GPIO_PULLUP_ONLY);
+      gpio_set_pull_mode(gpio_to_sobra, GPIO_PULLUP_ONLY);
 
 
     char output_buffer[MAX_HTTP_RECV_BUFFER] = {0};  // Buffer to store response of http request
@@ -167,14 +208,14 @@ void http_get_task(void *pvParameters)
     esp_http_client_handle_t client = esp_http_client_init(&config);
 
     while(1){
-        while (gpio_get_level(GPIO_NUM_25) == 1) {
+        while (gpio_get_level(gpio_to_reset) == 1) {
             vTaskDelay(pdMS_TO_TICKS(100)); // Evita checagem contínua, diminuindo o uso da CPU
         }
         // Debounce simples
         vTaskDelay(pdMS_TO_TICKS(50));
 
         
-    if (gpio_get_level(GPIO_NUM_25) == 0) {
+    if (gpio_get_level(gpio_to_reset) == 0) {
         esp_http_client_cleanup(client);
         // necessario pq se nao depois de um tempo nao consigo fazer novas requisições
         client = esp_http_client_init(&config);
@@ -193,9 +234,11 @@ void http_get_task(void *pvParameters)
 
         } else {
             ESP_LOGE(TAG, "HTTP GET request failed: %s", esp_err_to_name(err));
+        } 
         }
-
-           
+        
+        if (gpio_get_level(gpio_to_sobra) == 0) {
+         ESP_LOGI("sobra", "SOOOOOOOOOOOBRA");
         }
 
         // Aguarda um momento antes de permitir outra checagem para evitar múltiplas detecções
@@ -278,8 +321,8 @@ void vtask_blink_led(void *pvParameter){
         if (xQueueReceive(queue_tempo, &tempo_piscada, 0) == pdPASS) {
             ESP_LOGI(TAG, "Tempo de piscada atualizado para %d segundos", tempo_piscada);
         }
-        gpio_set_level(GPIO_NUM_32, (uiCounter%2));
-        gpio_set_level(GPIO_NUM_33, ((uiCounter+1)%2));
+        gpio_set_level(GPIO_NUM_25, (uiCounter%2));
+        gpio_set_level(GPIO_NUM_26, ((uiCounter+1)%2));
         vTaskDelay(pdMS_TO_TICKS(tempo_piscada * 1000));
         uiCounter++;
         printf ("Pisquei\n");
@@ -288,21 +331,143 @@ void vtask_blink_led(void *pvParameter){
 }
 
 
-int ler_adc(){
+int ler_adc(int seleciona_sensor){
+
         int voltage = 0;
+        // Escolhendo o canal baseado no sensor selecionado
+        adc1_channel_t adc_channel;
+        switch (seleciona_sensor) {
+            case 1:
+                adc_channel = ADC1_CHANNEL_0;
+                break;
+            case 2:
+                adc_channel = ADC1_CHANNEL_3;
+                break;
+            case 3:
+                adc_channel = ADC1_CHANNEL_6;
+                break;
+            case 4:
+                adc_channel = ADC1_CHANNEL_7;
+                break;
+            case 5:
+                adc_channel = ADC1_CHANNEL_4;
+                break;
+            case 6:
+                adc_channel = ADC1_CHANNEL_5;
+                break;
+            default:
+                ESP_LOGE("ADC", "Seleção de sensor inválida");
+                return -1;  // Retornar -1 ou outro código de erro apropriado
+        }
+
+
+       
         for (int i = 0; i < 10; i++){
-            voltage += adc1_get_raw(ADC1_CHANNEL_0);//Obtem o valor RAW do ADC
-            sys_delay_ms(30);
+            voltage += adc1_get_raw(adc_channel);//Obtem o valor RAW do ADC
+            sys_delay_ms(10);
         }
         voltage /= 100;
         voltage = esp_adc_cal_raw_to_voltage(voltage, &adc_cal);//Converte e calibra o valor lido (RAW) para mV
-        ESP_LOGI("ADC CAL", "Read mV: %d", voltage);//Mostra a leitura calibrada no Serial Monitor
+        ESP_LOGI("ADC CAL", "SENSOR %d Read mV: %d",seleciona_sensor, voltage);//Mostra a leitura calibrada no Serial Monitor
          char valor_lido[256]; // Ajuste o tamanho conforme necessário
         snprintf(valor_lido, sizeof(valor_lido), "Leitura;%d", voltage);
         post_finished_to_firebase(valor_lido);
         vTaskDelay(pdMS_TO_TICKS(10));   
         return voltage;
     
+}
+
+void ativar_out(int seleciona_out){
+
+    gpio_num_t gpio_to_use;
+    
+    switch (seleciona_out) {
+            case 1:
+                gpio_to_use = GPIO_NUM_25;
+                statusLed1 =1;
+                break;
+            case 2:
+                gpio_to_use = GPIO_NUM_26;
+                statusLed2 =1;
+                break;
+            case 3:
+                gpio_to_use = GPIO_NUM_14;
+                statusLed3 =1;
+                break;
+            case 4:
+                gpio_to_use = GPIO_NUM_12;
+                statusLed4 =1;
+                break;
+            case 5:
+                gpio_to_use = GPIO_NUM_13;
+                statusLed5 =1;
+                break;
+            case 6:
+                gpio_to_use = GPIO_NUM_23;
+                statusLed6 =1;
+                break;
+            case 7:
+                gpio_to_use = GPIO_NUM_22;
+                statusLed7 =1;
+                break;
+            case 8:
+                gpio_to_use = GPIO_NUM_21;
+                statusLed8 =1;
+                break;
+            default:
+                ESP_LOGE("GPIO", "Seleção de gpiout inválida");
+                return;  
+        }
+
+        gpio_set_level(gpio_to_use, 1); // Assume que "1" ativa e "0" desativa        
+
+}
+
+void desativar_out(int seleciona_out){
+
+    gpio_num_t gpio_to_use;
+    
+    switch (seleciona_out) {
+            case 1:
+                gpio_to_use = GPIO_NUM_25;
+                statusLed1 =0;
+                break;
+            case 2:
+                gpio_to_use = GPIO_NUM_26;
+                statusLed2 =0;
+                break;
+            case 3:
+                gpio_to_use = GPIO_NUM_14;
+                statusLed3 =0;
+                break;
+            case 4:
+                gpio_to_use = GPIO_NUM_12;
+                statusLed4 =0;
+                break;
+            case 5:
+                gpio_to_use = GPIO_NUM_13;
+                statusLed5 =0;
+                break;
+            case 6:
+                gpio_to_use = GPIO_NUM_23;
+                statusLed6 =0;
+                break;
+            case 7:
+                gpio_to_use = GPIO_NUM_22;
+                statusLed7 =0;
+                break;
+            case 8:
+                gpio_to_use = GPIO_NUM_21;
+                statusLed8 =0;
+                break;
+            default:
+                ESP_LOGE("GPIO", "Seleção de gpiout inválida");
+                return;  
+        }
+
+        gpio_set_level(gpio_to_use, 0); // Assume que "1" ativa e "0" desativa        
+
+
 }
 
 int status_out(int porta){
@@ -370,6 +535,7 @@ void verifica_condicoes(const char* command, int value, char compara, char**cond
     //SENSOR É A ENTRADA DO ADC
     if(strncmp( condicoes[0], "SENSOR",6) == 0 || strncmp( condicoes[1], "SENSOR",6) == 0){
         int status_seleciona;
+
         if(strncmp( condicoes[0], "SENSOR",6) == 0){
               sscanf( condicoes[0], "SENSOR*%d",&status_seleciona);
         }
@@ -378,8 +544,12 @@ void verifica_condicoes(const char* command, int value, char compara, char**cond
         }
          ESP_LOGI(TAG, "SENSOR SELECIONA  %d  ",status_seleciona);
         if(flag_condicoes<num_condicoes){
-        value_condicoes[flag_condicoes] = ler_adc(); //melhorar funcao ler_adc
+
+        value_condicoes[flag_condicoes] = ler_adc(status_seleciona); //melhorar funcao ler_adc
+                
+         ESP_LOGI(TAG, "VALOR condicoes flag  %d == %d ",flag_condicoes,value_condicoes[flag_condicoes]);
         flag_condicoes++;
+           ESP_LOGI(TAG, "Flag condicoes  %d ",flag_condicoes);
         
         }
     }
@@ -402,11 +572,13 @@ void verifica_condicoes(const char* command, int value, char compara, char**cond
         }
 
 
-         ESP_LOGI(TAG, "VALOR   %d  ",status_seleciona);
-          ESP_LOGI(TAG, "VALOR FATORA   i0- %d i1- %d i2- %d i3- %d  i4- %d   ", valor_fatorado[0],valor_fatorado[1],valor_fatorado[2],valor_fatorado[3],valor_fatorado[4]);
+         ESP_LOGI(TAG, "VALOR   %d  flag condicoes %d",status_seleciona,flag_condicoes);
+          //ESP_LOGI(TAG, "VALOR FATORA   i 0- %d i1- %d i2- %d i3- %d  i4- %d   ", valor_fatorado[0],valor_fatorado[1],valor_fatorado[2],valor_fatorado[3],valor_fatorado[4]);
         if(flag_condicoes<num_condicoes){
-        value_condicoes[flag_condicoes] = status_seleciona; //melhorar funcao ler_adc
+        value_condicoes[flag_condicoes] = status_seleciona; 
+        ESP_LOGI(TAG, "VALOR condicoes flag  %d == %d ",flag_condicoes,value_condicoes[flag_condicoes]);
         flag_condicoes++;
+        ESP_LOGI(TAG, "Flag condicoes  %d ",flag_condicoes);
         
         }
     }
@@ -422,8 +594,7 @@ void verifica_condicoes(const char* command, int value, char compara, char**cond
 
 int execute_command(const char* command, int value) {
     
-     esp_rom_gpio_pad_select_gpio (GPIO_NUM_32);
-     esp_rom_gpio_pad_select_gpio (GPIO_NUM_33);
+
 
     // Preparando a mensagem a ser enviada para o Firebase
     char message[256]; // Ajuste o tamanho conforme necessário
@@ -432,52 +603,20 @@ int execute_command(const char* command, int value) {
     ESP_LOGI(TAG, "Comando dentro execute: %s %d", command, value);
    //post_finished_to_firebase(message);
 
-    //Define como saída
-     gpio_set_direction (GPIO_NUM_32, GPIO_MODE_OUTPUT);
-     gpio_set_direction (GPIO_NUM_33, GPIO_MODE_OUTPUT);
-
-     // Seleciona o GPIO baseado no valor.
-    gpio_num_t gpio_to_use = (value == 1) ? GPIO_NUM_32 : GPIO_NUM_33;
-
    ESP_LOGI(TAG, "Comando dentro execute: %s", command);
     if (strcmp(command, "ativar") == 0 || strcmp(command, "\"ativar") == 0  ) {
-        gpio_set_level(gpio_to_use, 1); // Assume que "1" ativa e "0" desativa
-
-         ESP_LOGI(TAG, "Ativei");
-         switch (gpio_to_use)
-         {
-         case GPIO_NUM_32:
-            statusLed1 =1;
-            break;
-         case GPIO_NUM_33:
-            statusLed2 =1;
-            break;
-         
-         default:
-            break;
-         }
+        ativar_out(value);
 
     } else if (strcmp(command, "desativar") == 0 || strcmp(command, "\"desativar") == 0  ) {
-        gpio_set_level(gpio_to_use, 0); // Assume que "1" desativa e "0" mantém ativado
-        switch (gpio_to_use)
-         {
-         case GPIO_NUM_32:
-            statusLed1 =0;
-            break;
-         case GPIO_NUM_33:
-            statusLed2 =0;
-            break;
-         
-         default:
-            break;
-         }
+        desativar_out(value);
      
     } else if (strcmp(command, "esperar") == 0 || strcmp(command, "\"esperar") == 0) {
         vTaskDelay(pdMS_TO_TICKS(value * 1000)); // Espera pelo número especificado de segundos
       
     }
     else if (strcmp(command, "ler") == 0 || strcmp(command, "\"ler") == 0) {
-        int voltage = ler_adc();
+        int voltage = ler_adc(value);
+         ESP_LOGI(TAG, "Valor ler ADC: %d", value);
  
     }
     else if (strncmp(command, "se-", 3) == 0  || strncmp(command, "\"se-",4) == 0) {
@@ -758,11 +897,27 @@ void commandTask(void *pvParameters) {
 
 
 void app_main(void) {
+    ESP_LOGI("MAIN", "Entrei main");
+    
     // criar fila 
      queue_tempo = xQueueCreate(10, sizeof(int));
      commandQueue = xQueueCreate(10, sizeof(char) * MAX_COMMAND_LENGTH);
      
+    ESP_LOGI("MAIN", "criei task");
+     
+         // Desativar todos os logs
+ //   esp_log_level_set("*", ESP_LOG_NONE);
+
+    // Ativar logs somente para a tag ADC_CAL
+   // esp_log_level_set("ADC CAL", ESP_LOG_INFO);
+
+
     config_adc();
+         
+    ESP_LOGI("MAIN", "configurei adc");
+     config_saidas();
+          
+    ESP_LOGI("MAIN", "configurei saidas");
      //xTaskCreate(vtask_blink_led,"vtask_blink_led",2048,NULL,5,NULL);
      xTaskCreate(commandTask, "commandTask", 10240, NULL, 15, NULL);
 
