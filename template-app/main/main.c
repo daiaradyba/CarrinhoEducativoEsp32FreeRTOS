@@ -1043,6 +1043,8 @@ void process_commands(const char* commands) {
    
 }
 
+//TEST GIT
+
 void commandTask(void *pvParameters) {
     char receivedCommand[MAX_COMMAND_LENGTH];
 
