@@ -17,6 +17,8 @@
 #define WIFI_PASS      "day12358"
 #define MAX_HTTP_RECV_BUFFER 1024
 #define MAX_COMMAND_LENGTH 1024
+#define ESP_INTR_FLAG_DEFAULT 0
+#define DEBOUNCE_DELAY_MS 500
 
 esp_adc_cal_characteristics_t adc_cal;//Estrutura que contem as informacoes para calibracao
 
@@ -24,6 +26,7 @@ static const char *TAG = "wifi_http_example";
 
 QueueHandle_t queue_tempo;
 QueueHandle_t commandQueue;
+
 
 int statusLed1 = -1; 
 int statusLed2 = -1;
@@ -35,55 +38,14 @@ int statusLed7 = -1;
 int statusLed8 = -1;
 
 gpio_num_t gpio_to_reset = GPIO_NUM_27;
-gpio_num_t gpio_to_sobra = GPIO_NUM_19;
+gpio_num_t gpio_to_sobra = GPIO_NUM_18;
 
-void config_adc(){
-    adc1_config_width(ADC_WIDTH_BIT_12);//Configura a resolucao
-        esp_adc_cal_value_t adc_type = esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_12, ADC_WIDTH_BIT_12, 1100, &adc_cal);//Inicializa a estrutura de calibracao
- 
-    if (adc_type == ESP_ADC_CAL_VAL_EFUSE_VREF)
-    {
-        ESP_LOGI("ADC CAL", "Vref eFuse encontrado: V");
-    }
-    else if (adc_type == ESP_ADC_CAL_VAL_EFUSE_TP)
-    {
-        ESP_LOGI("ADC CAL", "Two Point eFuse encontrado");
-    }
-    else
-    {
-        ESP_LOGW("ADC CAL", "Nada encontrado, utilizando Vref padrao: V");
-    }
-    
+SemaphoreHandle_t debounceSemaphore;
+
+static void IRAM_ATTR gpio_isr_handler(void* arg) {
+    xSemaphoreGiveFromISR(debounceSemaphore, NULL);
 }
 
-void config_saidas(){
-
-     ESP_LOGI("CONFIG SAIDAS", "Iniciei funcao");
-
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_25);
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_26);
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_14);
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_12);
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_13);
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_23);
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_22);
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_21);
-
-      ESP_LOGI("CONFIG SAIDAS", "Finalizei SELECT PIO");
-
-    //Define como saída
-     gpio_set_direction (GPIO_NUM_25, GPIO_MODE_OUTPUT);
-     gpio_set_direction (GPIO_NUM_26, GPIO_MODE_OUTPUT);
-     gpio_set_direction (GPIO_NUM_14, GPIO_MODE_OUTPUT);
-     gpio_set_direction (GPIO_NUM_12, GPIO_MODE_OUTPUT);
-     gpio_set_direction (GPIO_NUM_13, GPIO_MODE_OUTPUT);
-     gpio_set_direction (GPIO_NUM_23, GPIO_MODE_OUTPUT);
-     gpio_set_direction (GPIO_NUM_22, GPIO_MODE_OUTPUT);
-     gpio_set_direction (GPIO_NUM_21, GPIO_MODE_OUTPUT);
-     
-    ESP_LOGI("CONFIG SAIDAS", "Finalizei funcao");
-
-}
 esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
 
     static char *output_buffer;  // Buffer to store response of http request from event handler
@@ -183,8 +145,87 @@ void post_finished_to_firebase(const char* message) {
     esp_http_client_cleanup(client);
 }
 
+
 void http_get_task(void *pvParameters)
 {
+
+    char output_buffer[MAX_HTTP_RECV_BUFFER] = {0};  // Buffer to store response of http request
+    esp_http_client_config_t config = {
+        .url = "https://carrinhoeducativo-default-rtdb.firebaseio.com/code.json", // Substitua pela sua URL do Firebase
+        .event_handler = _http_event_handler,
+        .skip_cert_common_name_check = true, //ignorar certificado por enquanto
+        .user_data = output_buffer  // Pass a pointer to a buffer to store the response
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+
+        esp_http_client_cleanup(client);
+        // necessario pq se nao depois de um tempo nao consigo fazer novas requisições
+        client = esp_http_client_init(&config);
+
+        memset(output_buffer, 0, sizeof(output_buffer));
+
+        ESP_LOGI(TAG, "Botão pressionado, fazendo solicitação HTTP...");
+        // Realiza a solicitação HTTP
+        esp_err_t err = esp_http_client_perform(client);
+        if (err == ESP_OK) {
+         ESP_LOGI(TAG, "Got data: %s", output_buffer);
+          post_finished_to_firebase("Comandos Recebidos");
+        if (xQueueSend(commandQueue, &output_buffer, portMAX_DELAY) != pdPASS) {
+            ESP_LOGE(TAG, "Failed to send command to the queue");
+            }
+
+        } else {
+            ESP_LOGE(TAG, "HTTP GET request failed: %s", esp_err_to_name(err));
+        } 
+        
+
+    esp_http_client_cleanup(client);
+    vTaskDelete(NULL); // Termina a tarefa depois de executar a requisição HTTP
+
+    }
+
+
+    
+
+void debounce_task(void* arg) {
+    int pin = (int) arg;
+
+    for(;;) {
+        if (xSemaphoreTake(debounceSemaphore, portMAX_DELAY) == pdTRUE) {
+            // Aguarda um tempo fixo para estabilizar o sinal
+            vTaskDelay(pdMS_TO_TICKS(DEBOUNCE_DELAY_MS));
+
+            // Verifica se o botão ainda está pressionado (nível baixo)
+            if (gpio_get_level(gpio_to_reset) == 0) {
+                printf("Botão pressionado com sucesso.\n");
+
+                  xTaskCreate(http_get_task, "http_get_task", 4096, (void*)pin, 10, NULL);
+            }
+        }
+     vTaskDelay(pdMS_TO_TICKS(DEBOUNCE_DELAY_MS));
+    }
+}
+
+
+
+void setup_gpio_interrupt() {
+    gpio_config_t io_conf = {
+        .intr_type = GPIO_INTR_NEGEDGE, // Interrupt on falling edge
+        .pin_bit_mask = (1ULL << gpio_to_reset), // Bitmask for the pin, using the defined gpio_to_reset
+        .mode = GPIO_MODE_INPUT,        // Set as Input
+        .pull_up_en = 1,                // Enable pull-up resistor
+        .pull_down_en = 0               // Disable pull-down resistor
+    };
+    gpio_config(&io_conf);
+
+    // Install GPIO interrupt service
+    gpio_install_isr_service(ESP_INTR_FLAG_DEFAULT);
+    // Attach the interrupt service routine
+    gpio_isr_handler_add(gpio_to_reset, gpio_isr_handler, (void*) gpio_to_reset);
+}
+
+
+void config_entradas(){
 
     esp_rom_gpio_pad_select_gpio (gpio_to_reset);
     esp_rom_gpio_pad_select_gpio (gpio_to_sobra);
@@ -197,56 +238,238 @@ void http_get_task(void *pvParameters)
      gpio_set_pull_mode(gpio_to_reset, GPIO_PULLUP_ONLY);
       gpio_set_pull_mode(gpio_to_sobra, GPIO_PULLUP_ONLY);
 
+}
 
-    char output_buffer[MAX_HTTP_RECV_BUFFER] = {0};  // Buffer to store response of http request
+void config_adc(){
+    adc1_config_width(ADC_WIDTH_BIT_12);//Configura a resolucao
+        esp_adc_cal_value_t adc_type = esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_12, ADC_WIDTH_BIT_12, 1100, &adc_cal);//Inicializa a estrutura de calibracao
+ 
+    if (adc_type == ESP_ADC_CAL_VAL_EFUSE_VREF)
+    {
+        ESP_LOGI("ADC CAL", "Vref eFuse encontrado: V");
+    }
+    else if (adc_type == ESP_ADC_CAL_VAL_EFUSE_TP)
+    {
+        ESP_LOGI("ADC CAL", "Two Point eFuse encontrado");
+    }
+    else
+    {
+        ESP_LOGW("ADC CAL", "Nada encontrado, utilizando Vref padrao: V");
+    }
+    
+}
+
+void config_saidas(){
+
+     ESP_LOGI("CONFIG SAIDAS", "Iniciei funcao");
+
+    esp_rom_gpio_pad_select_gpio (GPIO_NUM_25);
+    esp_rom_gpio_pad_select_gpio (GPIO_NUM_26);
+    esp_rom_gpio_pad_select_gpio (GPIO_NUM_14);
+    esp_rom_gpio_pad_select_gpio (GPIO_NUM_12);
+    esp_rom_gpio_pad_select_gpio (GPIO_NUM_13);
+    esp_rom_gpio_pad_select_gpio (GPIO_NUM_23);
+    esp_rom_gpio_pad_select_gpio (GPIO_NUM_22);
+    esp_rom_gpio_pad_select_gpio (GPIO_NUM_21);
+
+      ESP_LOGI("CONFIG SAIDAS", "Finalizei SELECT PIO");
+
+    //Define como saída
+     gpio_set_direction (GPIO_NUM_25, GPIO_MODE_OUTPUT);
+     gpio_set_direction (GPIO_NUM_26, GPIO_MODE_OUTPUT);
+     gpio_set_direction (GPIO_NUM_14, GPIO_MODE_OUTPUT);
+     gpio_set_direction (GPIO_NUM_12, GPIO_MODE_OUTPUT);
+     gpio_set_direction (GPIO_NUM_13, GPIO_MODE_OUTPUT);
+     gpio_set_direction (GPIO_NUM_23, GPIO_MODE_OUTPUT);
+     gpio_set_direction (GPIO_NUM_22, GPIO_MODE_OUTPUT);
+     gpio_set_direction (GPIO_NUM_21, GPIO_MODE_OUTPUT);
+     
+    ESP_LOGI("CONFIG SAIDAS", "Finalizei funcao");
+
+}
+
+void ativar_out(int seleciona_out){
+
+    gpio_num_t gpio_to_use;
+    
+    switch (seleciona_out) {
+            case 1:
+                gpio_to_use = GPIO_NUM_25;
+                statusLed1 =1;
+                break;
+            case 2:
+                gpio_to_use = GPIO_NUM_26;
+                statusLed2 =1;
+                break;
+            case 3:
+                gpio_to_use = GPIO_NUM_14;
+                statusLed3 =1;
+                break;
+            case 4:
+                gpio_to_use = GPIO_NUM_12;
+                statusLed4 =1;
+                break;
+            case 5:
+                gpio_to_use = GPIO_NUM_13;
+                statusLed5 =1;
+                break;
+            case 6:
+                gpio_to_use = GPIO_NUM_23;
+                statusLed6 =1;
+                break;
+            case 7:
+                gpio_to_use = GPIO_NUM_22;
+                statusLed7 =1;
+                break;
+            case 8:
+                gpio_to_use = GPIO_NUM_21;
+                statusLed8 =1;
+                break;
+            default:
+                ESP_LOGE("GPIO", "Seleção de gpiout inválida");
+                return;  
+        }
+
+        gpio_set_level(gpio_to_use, 1); // Assume que "1" ativa e "0" desativa        
+
+}
+
+void desativar_out(int seleciona_out){
+
+    gpio_num_t gpio_to_use;
+    
+    switch (seleciona_out) {
+            case 1:
+                gpio_to_use = GPIO_NUM_25;
+                statusLed1 =0;
+                break;
+            case 2:
+                gpio_to_use = GPIO_NUM_26;
+                statusLed2 =0;
+                break;
+            case 3:
+                gpio_to_use = GPIO_NUM_14;
+                statusLed3 =0;
+                break;
+            case 4:
+                gpio_to_use = GPIO_NUM_12;
+                statusLed4 =0;
+                break;
+            case 5:
+                gpio_to_use = GPIO_NUM_13;
+                statusLed5 =0;
+                break;
+            case 6:
+                gpio_to_use = GPIO_NUM_23;
+                statusLed6 =0;
+                break;
+            case 7:
+                gpio_to_use = GPIO_NUM_22;
+                statusLed7 =0;
+                break;
+            case 8:
+                gpio_to_use = GPIO_NUM_21;
+                statusLed8 =0;
+                break;
+            default:
+                ESP_LOGE("GPIO", "Seleção de gpiout inválida");
+                return;  
+        }
+
+        gpio_set_level(gpio_to_use, 0); // Assume que "1" ativa e "0" desativa        
+
+
+}
+
+//aparentemente nao precisava dessa funcao... verificar depois
+int status_out(int porta){
+    int status = -1;
+    switch (porta) {
+    case 1:
+        status = statusLed1;
+        break;
+    case 2:
+        status = statusLed2;
+        break;
+    default:
+       ESP_LOGI(TAG, "Porta Invalida");
+        break;
+    }
+    return status;
+
+}
+
+
+
+void post_firebase_sensor(int seleciona_sensor, const char* message){
+    char url[256];  // Aumente o tamanho se necessário
+    char chave[32];
+    char post_data[256];
+
+    switch (seleciona_sensor) {
+    case 1:
+        strcpy(chave, "sensor1");
+        break;
+    case 2:
+        strcpy(chave, "sensor2");
+        break;
+    case 3:
+        strcpy(chave, "sensor3");
+        break;
+    case 4:
+        strcpy(chave, "sensor4");
+        break;
+    case 5:
+        strcpy(chave, "sensor5");
+        break;
+    case 6:
+        strcpy(chave, "sensor6");
+        break;
+    default:
+        ESP_LOGE("POST SENSOR", "Sensor não suportado");
+        return;
+    }
+
+    // Ajusta a URL para apontar para a chave específica do sensor
+    snprintf(url, sizeof(url), "https://carrinhoeducativo-default-rtdb.firebaseio.com/sensores/%s.json", chave);
+
+    // Formatar em JSON
+    snprintf(post_data, sizeof(post_data), "\"%s\"", message);
+    ESP_LOGI("POST SENSOR", "post_data: %s", post_data);
+
     esp_http_client_config_t config = {
-        .url = "https://carrinhoeducativo-default-rtdb.firebaseio.com/code.json", // Substitua pela sua URL do Firebase
-        .event_handler = _http_event_handler,
-        .skip_cert_common_name_check = true, //ignorar certificado por enquanto
-        .user_data = output_buffer  // Pass a pointer to a buffer to store the response
+        .url = url,
+        .method = HTTP_METHOD_PUT, // PUT para atualizar apenas o campo específico
     };
+
     esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (client == NULL) {
+        ESP_LOGE("POST SENSOR", "Failed to initialize HTTP client");
+        return;
+    }
 
-    while(1){
-        while (gpio_get_level(gpio_to_reset) == 1) {
-            vTaskDelay(pdMS_TO_TICKS(100)); // Evita checagem contínua, diminuindo o uso da CPU
-        }
-        // Debounce simples
-        vTaskDelay(pdMS_TO_TICKS(50));
+    esp_http_client_set_post_field(client, post_data, strlen(post_data));
+    esp_err_t err = esp_http_client_perform(client);
 
-        
-    if (gpio_get_level(gpio_to_reset) == 0) {
-        esp_http_client_cleanup(client);
-        // necessario pq se nao depois de um tempo nao consigo fazer novas requisições
-        client = esp_http_client_init(&config);
-
-        memset(output_buffer, 0, sizeof(output_buffer));
-
-            ESP_LOGI(TAG, "Botão pressionado, fazendo solicitação HTTP...");
-            // Realiza a solicitação HTTP
-            esp_err_t err = esp_http_client_perform(client);
-        if (err == ESP_OK) {
-         ESP_LOGI(TAG, "Got data: %s", output_buffer);
-          post_finished_to_firebase("Comandos Recebidos");
-        if (xQueueSend(commandQueue, &output_buffer, portMAX_DELAY) != pdPASS) {
-            ESP_LOGE(TAG, "Failed to send command to the queue");
-            }
-
+    if (err == ESP_OK) {
+        int status_code = esp_http_client_get_status_code(client);
+        if (status_code == 200) {
+            ESP_LOGI("POST SENSOR", "Successfully posted status to Firebase sensor POST DATA: %s", post_data);
         } else {
-            ESP_LOGE(TAG, "HTTP GET request failed: %s", esp_err_to_name(err));
-        } 
+            ESP_LOGE("POST SENSOR", "HTTP POST Sensor failed with status code: %d", status_code);
         }
-        
-        if (gpio_get_level(gpio_to_sobra) == 0) {
-         ESP_LOGI("sobra", "SOOOOOOOOOOOBRA");
-        }
-
-        // Aguarda um momento antes de permitir outra checagem para evitar múltiplas detecções
-        vTaskDelay(pdMS_TO_TICKS(500));
+    } else {
+        ESP_LOGE("POST SENSOR", "HTTP POST Sensor request failed: %s", esp_err_to_name(err));
     }
 
+    esp_http_client_cleanup(client);
+}
+void post_firebase_led(int seleciona_sensor){
+    
+}
 
-    }
+
+
 
 
 
@@ -257,10 +480,16 @@ void event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, voi
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         esp_wifi_connect();
         ESP_LOGI(TAG, "Tentando reconectar ao AP...");
+        if(statusLed1 ==0 || statusLed1 == -1){
+            ativar_out(1);
+        }
+        else if (statusLed1 ==1){
+            desativar_out(1);
+        }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ESP_LOGI(TAG, "Conectado com sucesso!");
+         ativar_out(1);
         // Chama a tarefa HTTP após a conexão ser estabelecida
-        xTaskCreate(&http_get_task, "http_get_task", 4096, NULL, 5, NULL);
     }
 }
 
@@ -362,130 +591,23 @@ int ler_adc(int seleciona_sensor){
 
 
        
-        for (int i = 0; i < 10; i++){
+       /* for (int i = 0; i < 10; i++){
             voltage += adc1_get_raw(adc_channel);//Obtem o valor RAW do ADC
             sys_delay_ms(10);
-        }
+        }*/
+         voltage = adc1_get_raw(adc_channel);//Obtem o valor RAW do ADC
         voltage /= 100;
         voltage = esp_adc_cal_raw_to_voltage(voltage, &adc_cal);//Converte e calibra o valor lido (RAW) para mV
         ESP_LOGI("ADC CAL", "SENSOR %d Read mV: %d",seleciona_sensor, voltage);//Mostra a leitura calibrada no Serial Monitor
          char valor_lido[256]; // Ajuste o tamanho conforme necessário
-        snprintf(valor_lido, sizeof(valor_lido), "Leitura;%d", voltage);
-        post_finished_to_firebase(valor_lido);
-        vTaskDelay(pdMS_TO_TICKS(10));   
+        snprintf(valor_lido, sizeof(valor_lido), "%d", voltage);
+        
+       // post_firebase_sensor(seleciona_sensor,valor_lido);
+       
         return voltage;
     
 }
 
-void ativar_out(int seleciona_out){
-
-    gpio_num_t gpio_to_use;
-    
-    switch (seleciona_out) {
-            case 1:
-                gpio_to_use = GPIO_NUM_25;
-                statusLed1 =1;
-                break;
-            case 2:
-                gpio_to_use = GPIO_NUM_26;
-                statusLed2 =1;
-                break;
-            case 3:
-                gpio_to_use = GPIO_NUM_14;
-                statusLed3 =1;
-                break;
-            case 4:
-                gpio_to_use = GPIO_NUM_12;
-                statusLed4 =1;
-                break;
-            case 5:
-                gpio_to_use = GPIO_NUM_13;
-                statusLed5 =1;
-                break;
-            case 6:
-                gpio_to_use = GPIO_NUM_23;
-                statusLed6 =1;
-                break;
-            case 7:
-                gpio_to_use = GPIO_NUM_22;
-                statusLed7 =1;
-                break;
-            case 8:
-                gpio_to_use = GPIO_NUM_21;
-                statusLed8 =1;
-                break;
-            default:
-                ESP_LOGE("GPIO", "Seleção de gpiout inválida");
-                return;  
-        }
-
-        gpio_set_level(gpio_to_use, 1); // Assume que "1" ativa e "0" desativa        
-
-}
-
-void desativar_out(int seleciona_out){
-
-    gpio_num_t gpio_to_use;
-    
-    switch (seleciona_out) {
-            case 1:
-                gpio_to_use = GPIO_NUM_25;
-                statusLed1 =0;
-                break;
-            case 2:
-                gpio_to_use = GPIO_NUM_26;
-                statusLed2 =0;
-                break;
-            case 3:
-                gpio_to_use = GPIO_NUM_14;
-                statusLed3 =0;
-                break;
-            case 4:
-                gpio_to_use = GPIO_NUM_12;
-                statusLed4 =0;
-                break;
-            case 5:
-                gpio_to_use = GPIO_NUM_13;
-                statusLed5 =0;
-                break;
-            case 6:
-                gpio_to_use = GPIO_NUM_23;
-                statusLed6 =0;
-                break;
-            case 7:
-                gpio_to_use = GPIO_NUM_22;
-                statusLed7 =0;
-                break;
-            case 8:
-                gpio_to_use = GPIO_NUM_21;
-                statusLed8 =0;
-                break;
-            default:
-                ESP_LOGE("GPIO", "Seleção de gpiout inválida");
-                return;  
-        }
-
-        gpio_set_level(gpio_to_use, 0); // Assume que "1" ativa e "0" desativa        
-
-
-}
-
-int status_out(int porta){
-    int status = -1;
-    switch (porta) {
-    case 1:
-        status = statusLed1;
-        break;
-    case 2:
-        status = statusLed2;
-        break;
-    default:
-       ESP_LOGI(TAG, "Porta Invalida");
-        break;
-    }
-    return status;
-
-}
 
 void verifica_condicoes(const char* command, int value, char compara, char**condicoes,int* value_condicoes){
         //post_finished_to_firebase(message);
@@ -681,6 +803,23 @@ int execute_command(const char* command, int value) {
                 return 10;
             }
             break;
+        case '>':
+            if(value_condicoes[0] > value_condicoes[1]){
+                return 0;
+            }
+            else{
+                return 10;
+            }
+            break;
+        case '!':
+            if(value_condicoes[0] != value_condicoes[1]){
+                return 0;
+            }
+            else{
+                return 10;
+            }
+            break;
+        
         
         default:
             break;
@@ -733,6 +872,7 @@ int execute_command(const char* command, int value) {
         }
         int  value_condicoes[2];
         verifica_condicoes(command, value,compara,condicoes,value_condicoes);
+        ESP_LOGI("While", "cond1 =%s valor =%d   cond 2 =%s   valor =%d ",condicoes[0],value_condicoes[0],condicoes[1],value_condicoes[1]);
         switch (compara)
         {
         case '=':
@@ -751,6 +891,25 @@ int execute_command(const char* command, int value) {
                 return 21; //para eliminar proximas 
             }
             break;
+        case '>':
+        ESP_LOGI("While","Entrei maior");
+            if(value_condicoes[0] > value_condicoes[1]){
+                ESP_LOGI("While","No maior, condição verdadeira, retornando 20");
+                return 20;
+            }
+            else{
+                              ESP_LOGI("While","No maior, condição falsa, retornando 21");
+                return 21; //para eliminar proximas 
+            }
+            break;
+        case '!':
+            if(value_condicoes[0] != value_condicoes[1]){
+                return 20;
+            }
+            else{
+                return 21; //para eliminar proximas 
+            }
+            break;
         
         default:
             break;
@@ -761,21 +920,20 @@ int execute_command(const char* command, int value) {
 }
 return 0;
 }
-
 void process_commands_while(const char* commands_while, int n_comandos, int qnt_strok_while) {
    
        
     static char* current_position_while = NULL; // Para manter a posição atual entre chamadas
     
     current_position_while = strdup(commands_while);
-    ESP_LOGI(TAG, "Current position do while: %s", current_position_while);
+    ESP_LOGI("While", "Current position do while: %s", current_position_while);
     char* token_while = strtok(current_position_while, "\\n");
     for (int i = 0; i <= qnt_strok_while; i++) // = pra pular o while junto
     {
        token_while = strtok(NULL, "\\n");
     }
     
-    ESP_LOGI(TAG, "Token do while: %s e n_comandos; %d", token_while,n_comandos);
+    ESP_LOGI("While", "Token do while: %s e n_comandos; %d", token_while,n_comandos);
     int verifica_while = 0; // Valor para avaliar if, else e while
 
     while (token_while != NULL&&n_comandos!=0) {
@@ -808,7 +966,7 @@ void process_commands_while(const char* commands_while, int n_comandos, int qnt_
 
     }
    
-     ESP_LOGI(TAG, "Terminei de processar todos os comandos do WHILE");
+     ESP_LOGI("While", "Terminei de processar todos os comandos do WHILE");
         free(current_position_while);
         current_position_while = NULL;
    
@@ -829,6 +987,7 @@ void process_commands(const char* commands) {
     int verifica = 0; // Valor para avaliar if, else e while
 
     while (token != NULL) {
+        
         char command[30];
         int value;
         sscanf(token, "%[^;];%d", command, &value);
@@ -852,7 +1011,7 @@ void process_commands(const char* commands) {
 
         else if(verifica==20){//20 = WHILE 
             ESP_LOGI(TAG, "----------------------------------------------------------------------------");
-                
+             ESP_LOGI("while process comand", "process comando verifica = 20 ");
             static char* commands_while = NULL; // Para manter a posição atual entre chamadas
             commands_while = strdup(commands);
 
@@ -863,6 +1022,7 @@ void process_commands(const char* commands) {
             ESP_LOGI(TAG, "----------------------------------------------------------------------------");
         }
         else if(verifica==21){
+             ESP_LOGI("while process comand", "process comando verifica = 21 ");
                 current_position = strdup(commands);
                 token = strtok(current_position, "\\n");
                     for (int i = 0; i <= qnt_strtok; i++) // = pra pular o while junto
@@ -874,7 +1034,7 @@ void process_commands(const char* commands) {
                         token = strtok(NULL, "\\n");
                     }
         }
-       
+       vTaskDelay(10); //necessario para nao estourar o watchdog
     }
       post_finished_to_firebase("Finalizado");
      ESP_LOGI(TAG, "Terminei de processar todos os comandos.");
@@ -905,23 +1065,29 @@ void app_main(void) {
      
     ESP_LOGI("MAIN", "criei task");
      
-         // Desativar todos os logs
- //   esp_log_level_set("*", ESP_LOG_NONE);
+        // Desativar todos os logs
+    esp_log_level_set(TAG, ESP_LOG_NONE);
 
     // Ativar logs somente para a tag ADC_CAL
-   // esp_log_level_set("ADC CAL", ESP_LOG_INFO);
+    //esp_log_level_set("POST SENSOR", ESP_LOG_INFO);
 
 
     config_adc();
-         
     ESP_LOGI("MAIN", "configurei adc");
-     config_saidas();
-          
+    
+    config_saidas();
     ESP_LOGI("MAIN", "configurei saidas");
+
+    config_entradas();
+    ESP_LOGI("MAIN", "configurei entradas");
+
+    debounceSemaphore = xSemaphoreCreateBinary();
+    xTaskCreate(debounce_task, "debounce_task", 2048, NULL, 10, NULL);
+
+    setup_gpio_interrupt();
+    ESP_LOGI("MAIN", "configurei interrupções");
      //xTaskCreate(vtask_blink_led,"vtask_blink_led",2048,NULL,5,NULL);
      xTaskCreate(commandTask, "commandTask", 10240, NULL, 15, NULL);
-
-    printf ("Task Blink Criada");
 
    // Inicializa o Wi-Fi
     wifi_init();
