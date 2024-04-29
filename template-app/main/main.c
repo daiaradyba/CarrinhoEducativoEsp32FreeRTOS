@@ -37,8 +37,8 @@ int statusLed6 = -1;
 int statusLed7 = -1; 
 int statusLed8 = -1;
 
-gpio_num_t gpio_to_reset = GPIO_NUM_27;
-gpio_num_t gpio_to_sobra = GPIO_NUM_18;
+gpio_num_t gpio_to_reset = GPIO_NUM_16;
+gpio_num_t gpio_to_sobra = GPIO_NUM_17;
 
 SemaphoreHandle_t debounceSemaphore;
 
@@ -263,8 +263,8 @@ void config_saidas(){
 
      ESP_LOGI("CONFIG SAIDAS", "Iniciei funcao");
 
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_25);
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_26);
+    esp_rom_gpio_pad_select_gpio (GPIO_NUM_18);
+    esp_rom_gpio_pad_select_gpio (GPIO_NUM_19);
     esp_rom_gpio_pad_select_gpio (GPIO_NUM_14);
     esp_rom_gpio_pad_select_gpio (GPIO_NUM_12);
     esp_rom_gpio_pad_select_gpio (GPIO_NUM_13);
@@ -275,8 +275,8 @@ void config_saidas(){
       ESP_LOGI("CONFIG SAIDAS", "Finalizei SELECT PIO");
 
     //Define como saída
-     gpio_set_direction (GPIO_NUM_25, GPIO_MODE_OUTPUT);
-     gpio_set_direction (GPIO_NUM_26, GPIO_MODE_OUTPUT);
+     gpio_set_direction (GPIO_NUM_18, GPIO_MODE_OUTPUT);
+     gpio_set_direction (GPIO_NUM_19, GPIO_MODE_OUTPUT);
      gpio_set_direction (GPIO_NUM_14, GPIO_MODE_OUTPUT);
      gpio_set_direction (GPIO_NUM_12, GPIO_MODE_OUTPUT);
      gpio_set_direction (GPIO_NUM_13, GPIO_MODE_OUTPUT);
@@ -294,11 +294,11 @@ void ativar_out(int seleciona_out){
     
     switch (seleciona_out) {
             case 1:
-                gpio_to_use = GPIO_NUM_25;
+                gpio_to_use = GPIO_NUM_18;
                 statusLed1 =1;
                 break;
             case 2:
-                gpio_to_use = GPIO_NUM_26;
+                gpio_to_use = GPIO_NUM_19;
                 statusLed2 =1;
                 break;
             case 3:
@@ -340,11 +340,11 @@ void desativar_out(int seleciona_out){
     
     switch (seleciona_out) {
             case 1:
-                gpio_to_use = GPIO_NUM_25;
+                gpio_to_use = GPIO_NUM_18;
                 statusLed1 =0;
                 break;
             case 2:
-                gpio_to_use = GPIO_NUM_26;
+                gpio_to_use = GPIO_NUM_19;
                 statusLed2 =0;
                 break;
             case 3:
@@ -724,12 +724,24 @@ int execute_command(const char* command, int value) {
     
     ESP_LOGI(TAG, "Comando dentro execute: %s %d", command, value);
    //post_finished_to_firebase(message);
+   ESP_LOGI("execute command", "comando %s value %d", command,value);
 
    ESP_LOGI(TAG, "Comando dentro execute: %s", command);
     if (strcmp(command, "ativar") == 0 || strcmp(command, "\"ativar") == 0  ) {
         ativar_out(value);
 
-    } else if (strcmp(command, "desativar") == 0 || strcmp(command, "\"desativar") == 0  ) {
+    } 
+    else if (strcmp(command, "mo") == 0 || strcmp(command, "\"mo") == 0  ) {
+   
+       int valor_sensor = ler_adc(value);
+        char valor_lido[256]; // Ajuste o tamanho conforme necessário
+        snprintf(valor_lido, sizeof(valor_lido), "%d", valor_sensor);
+          ESP_LOGI("monitorar", "Entrei Monitorar com value = %d  valor formato = %s",value,valor_lido);
+       post_firebase_sensor(value,valor_lido);
+
+    } 
+    
+    else if (strcmp(command, "desativar") == 0 || strcmp(command, "\"desativar") == 0  ) {
         desativar_out(value);
      
     } else if (strcmp(command, "esperar") == 0 || strcmp(command, "\"esperar") == 0) {
@@ -1068,7 +1080,7 @@ void app_main(void) {
     ESP_LOGI("MAIN", "criei task");
      
         // Desativar todos os logs
-    esp_log_level_set(TAG, ESP_LOG_NONE);
+    esp_log_level_set("*", ESP_LOG_NONE);
 
     // Ativar logs somente para a tag ADC_CAL
     //esp_log_level_set("POST SENSOR", ESP_LOG_INFO);
