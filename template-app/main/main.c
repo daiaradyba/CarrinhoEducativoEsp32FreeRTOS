@@ -9,6 +9,7 @@
 #include "esp_netif.h"
 #include "driver/gpio.h"
 #include "freertos/queue.h"
+#include "driver/ledc.h"
 
 #include <driver/adc.h>
 #include <esp_adc_cal.h>
@@ -18,7 +19,7 @@
 #define MAX_HTTP_RECV_BUFFER 1024
 #define MAX_COMMAND_LENGTH 1024
 #define ESP_INTR_FLAG_DEFAULT 0
-#define DEBOUNCE_DELAY_MS 500
+#define DEBOUNCE_DELAY_MS 200
 
 esp_adc_cal_characteristics_t adc_cal;//Estrutura que contem as informacoes para calibracao
 
@@ -36,9 +37,45 @@ int statusLed5 = -1;
 int statusLed6 = -1;
 int statusLed7 = -1; 
 int statusLed8 = -1;
+int statusLed9 = -1;
+int statusLed10 = -1;
+int statusLed11 = -1;
+int statusLed12 = -1;
 
-gpio_num_t gpio_to_reset = GPIO_NUM_16;
-gpio_num_t gpio_to_sobra = GPIO_NUM_17;
+int PWM_led2 = 1023;
+int PWM_motor_01 = 1023;
+int PWM_motor_02 = 1023;
+
+
+gpio_num_t gpio_to_reset = GPIO_NUM_25; //PINO D25
+gpio_num_t gpio_to_sobra = GPIO_NUM_26; //PINO D26
+
+gpio_num_t gpio_01 = GPIO_NUM_12; //PINO D12 - wifi
+gpio_num_t gpio_02 = GPIO_NUM_13; //PINO D13 - LED COM PWM
+gpio_num_t gpio_03 = GPIO_NUM_14; //PINO D14
+gpio_num_t gpio_04 = GPIO_NUM_23; //PINO D23
+gpio_num_t gpio_05 = GPIO_NUM_22; //PINO D22
+gpio_num_t gpio_06 = GPIO_NUM_21; //PINO D21
+gpio_num_t gpio_07 = GPIO_NUM_19; //PINO D19
+gpio_num_t gpio_08 = GPIO_NUM_18; //PINO D18 //M1 HIGH
+gpio_num_t gpio_09 = GPIO_NUM_16; //PINO RX2 //M1_LOW
+gpio_num_t gpio_10 = GPIO_NUM_17; //PINO TX2 // M2_HIGH
+gpio_num_t gpio_11 = GPIO_NUM_4; //PINO D4 //M2_LOW
+gpio_num_t gpio_12 = GPIO_NUM_27; //PINO D27
+
+#define LEDC_TIMER_10_BIT  10
+#define LEDC_BASE_FREQ     5000
+
+void setup_pwm_timer() {
+    ledc_timer_config_t ledc_timer = {
+        .duty_resolution = LEDC_TIMER_10_BIT, // Resolução de 13 bits
+        .freq_hz = LEDC_BASE_FREQ,            // Frequência de 5 kHz
+        .speed_mode = LEDC_HIGH_SPEED_MODE,   // Modo de alta velocidade
+        .timer_num = LEDC_TIMER_0             // Timer 0
+    };
+    ledc_timer_config(&ledc_timer);
+}
+
 
 SemaphoreHandle_t debounceSemaphore;
 
@@ -263,30 +300,212 @@ void config_saidas(){
 
      ESP_LOGI("CONFIG SAIDAS", "Iniciei funcao");
 
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_18);
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_19);
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_14);
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_12);
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_13);
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_23);
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_22);
-    esp_rom_gpio_pad_select_gpio (GPIO_NUM_21);
+    esp_rom_gpio_pad_select_gpio (gpio_01);
+    esp_rom_gpio_pad_select_gpio (gpio_02);
+    esp_rom_gpio_pad_select_gpio (gpio_03);
+    esp_rom_gpio_pad_select_gpio (gpio_04);
+    esp_rom_gpio_pad_select_gpio (gpio_05);
+    esp_rom_gpio_pad_select_gpio (gpio_06);
+    esp_rom_gpio_pad_select_gpio (gpio_07);
+    esp_rom_gpio_pad_select_gpio (gpio_08);
+    esp_rom_gpio_pad_select_gpio (gpio_09);
+    esp_rom_gpio_pad_select_gpio (gpio_10);
+    esp_rom_gpio_pad_select_gpio (gpio_11);
+    esp_rom_gpio_pad_select_gpio (gpio_12);
 
       ESP_LOGI("CONFIG SAIDAS", "Finalizei SELECT PIO");
 
     //Define como saída
-     gpio_set_direction (GPIO_NUM_18, GPIO_MODE_OUTPUT);
-     gpio_set_direction (GPIO_NUM_19, GPIO_MODE_OUTPUT);
-     gpio_set_direction (GPIO_NUM_14, GPIO_MODE_OUTPUT);
-     gpio_set_direction (GPIO_NUM_12, GPIO_MODE_OUTPUT);
-     gpio_set_direction (GPIO_NUM_13, GPIO_MODE_OUTPUT);
-     gpio_set_direction (GPIO_NUM_23, GPIO_MODE_OUTPUT);
-     gpio_set_direction (GPIO_NUM_22, GPIO_MODE_OUTPUT);
-     gpio_set_direction (GPIO_NUM_21, GPIO_MODE_OUTPUT);
+     gpio_set_direction (gpio_01, GPIO_MODE_OUTPUT);
+     gpio_set_direction (gpio_02, GPIO_MODE_OUTPUT);
+     gpio_set_direction (gpio_03, GPIO_MODE_OUTPUT);
+     gpio_set_direction (gpio_04, GPIO_MODE_OUTPUT);
+     gpio_set_direction (gpio_05, GPIO_MODE_OUTPUT);
+     gpio_set_direction (gpio_06, GPIO_MODE_OUTPUT);
+     gpio_set_direction (gpio_07, GPIO_MODE_OUTPUT);
+     gpio_set_direction (gpio_08, GPIO_MODE_OUTPUT);
+     gpio_set_direction (gpio_08, GPIO_MODE_OUTPUT);
+     gpio_set_direction (gpio_09, GPIO_MODE_OUTPUT);
+     gpio_set_direction (gpio_10, GPIO_MODE_OUTPUT);
+     gpio_set_direction (gpio_11, GPIO_MODE_OUTPUT);
+     gpio_set_direction (gpio_12, GPIO_MODE_OUTPUT);
      
     ESP_LOGI("CONFIG SAIDAS", "Finalizei funcao");
 
 }
+
+
+    
+
+void activate_pwm(int choice, int pwm) {
+    ledc_channel_t channel;
+    gpio_num_t gpio_to_use;
+
+    //2 - LED 2
+    //8 M1_HIGH
+    //9 M1_LOW
+    //10 M2_HIGH
+    //11 M2_LOW
+    // Configuração inicial para determinar qual canal e GPIO serão usados
+    switch (choice) {
+        case 2:
+            channel = LEDC_CHANNEL_0;
+            gpio_to_use = gpio_02; // Exemplo de GPIO
+            statusLed2 = 1;
+            break;
+        case 8:
+            channel = LEDC_CHANNEL_1;
+            gpio_to_use = gpio_08; // Exemplo de GPIO
+            statusLed8 = 1;
+            break;
+        case 9:
+            channel = LEDC_CHANNEL_2;
+            gpio_to_use = gpio_09; // Exemplo de GPIO
+            statusLed9 = 1;
+            break;
+        case 10:
+            channel = LEDC_CHANNEL_3;
+            gpio_to_use = gpio_10; // Exemplo de GPIO
+            statusLed10 = 1;
+            break;
+        case 11:
+            channel = LEDC_CHANNEL_4;
+            gpio_to_use = gpio_11; // Exemplo de GPIO
+            statusLed11 = 1;
+            break;
+        
+        
+        // Você pode adicionar mais cases aqui para outros canais
+        default:
+            ESP_LOGE("GPIO", "Seleção de gpiout inválida");
+            return; // Sair da função se a escolha for inválida
+    }
+
+    // Configurar o canal PWM para o GPIO e canal escolhido
+    ledc_channel_config_t ledc_channel = {
+        .channel    = channel,
+        .duty       = 0,
+        .gpio_num   = gpio_to_use,
+        .speed_mode = LEDC_HIGH_SPEED_MODE,
+        .hpoint     = 0,
+        .timer_sel  = LEDC_TIMER_0
+    };
+    ledc_channel_config(&ledc_channel);
+
+    // Definir e atualizar o duty cycle para o canal especificado
+    ledc_set_duty(LEDC_HIGH_SPEED_MODE, channel, pwm);
+    ESP_LOGI("PWM","ativei duty");
+    ledc_update_duty(LEDC_HIGH_SPEED_MODE, channel);
+}
+
+
+void desactivate_pwm(int choice) {
+    ledc_channel_t channel;
+
+   gpio_num_t gpio_to_use;
+    // Define qual canal será utilizado, baseado na escolha
+    switch (choice) {
+        case 2:
+            channel = LEDC_CHANNEL_0;
+            gpio_to_use = gpio_02; // Exemplo de GPIO
+            statusLed2 = 0;
+            break;
+        case 8:
+            channel = LEDC_CHANNEL_1;
+            gpio_to_use = gpio_08; // Exemplo de GPIO
+            statusLed8 = 0;
+            break;
+        case 9:
+            channel = LEDC_CHANNEL_2;
+            gpio_to_use = gpio_09; // Exemplo de GPIO
+            statusLed9 = 0;
+            break;
+        case 10:
+            channel = LEDC_CHANNEL_3;
+            gpio_to_use = gpio_10; // Exemplo de GPIO
+            statusLed10 = 0;
+            break;
+        case 11:
+            channel = LEDC_CHANNEL_4;
+            gpio_to_use = gpio_11; // Exemplo de GPIO
+            statusLed11 = 0;
+            break;
+        default:
+            ESP_LOGE("GPIO", "Seleção de gpiout inválida");
+            return;
+    }
+
+    // Desativa o PWM definindo o ciclo de trabalho para 0
+    ledc_set_duty(LEDC_HIGH_SPEED_MODE, channel, 0);
+    ledc_update_duty(LEDC_HIGH_SPEED_MODE, channel);
+}
+
+
+void controle_motor(int tempo, int comando){
+/*
+gpio_num_t gpio_08 = GPIO_NUM_18; //PINO D18 //M1 HIGH
+gpio_num_t gpio_09 = GPIO_NUM_16; //PINO RX2 //M1_LOW
+gpio_num_t gpio_10 = GPIO_NUM_17; //PINO TX2 // M2_HIGH
+gpio_num_t gpio_11 = GPIO_NUM_4; //PINO D4 //M2_LOW*/
+     int M1_HIGH = 8 ;
+     int M1_LOW =  9;
+     int M2_HIGH = 10;
+     int M2_LOW = 11;
+
+
+    //0 - desligar todos as saidas com 0 
+    //1 - frente - m1_high e m2_high com 1 e m1_low 0 m2_low 0;
+    //2 - direita - m1_high em 1 e demais em 0
+    //3 - esquerda - m2 high em 1 e demais em 0
+    //4 - tras - m1_low e m2_low em 1 e demais em 0 
+    
+    switch (comando) {
+            case 0:
+                desactivate_pwm(M1_HIGH);
+                desactivate_pwm(M1_LOW);
+                desactivate_pwm(M2_HIGH);
+                desactivate_pwm(M2_LOW);
+                break;
+            case 1:
+                activate_pwm(M1_HIGH,PWM_motor_01);
+                desactivate_pwm(M1_LOW);
+                activate_pwm(M2_HIGH,PWM_motor_02);
+                desactivate_pwm(M2_LOW); 
+                break;
+            case 2:
+                activate_pwm(M1_HIGH,PWM_motor_01);
+                desactivate_pwm(M1_LOW); 
+                desactivate_pwm(M2_HIGH); 
+               activate_pwm(M2_LOW,PWM_motor_02);
+                break;
+            case 3:
+                desactivate_pwm(M1_HIGH);
+                activate_pwm(M1_LOW,PWM_motor_01);
+                activate_pwm(M2_HIGH,PWM_motor_02);
+                desactivate_pwm(M2_LOW);
+                break;
+            case 4:
+                desactivate_pwm(M1_HIGH);
+                activate_pwm(M1_LOW,PWM_motor_01); 
+                desactivate_pwm(M2_HIGH); 
+                activate_pwm(M2_LOW,PWM_motor_02);
+
+                break;
+           
+            default:
+                ESP_LOGE("GPIO", "Seleção de gpiout inválida");
+                return;  
+        }
+
+         sys_delay_ms(tempo);
+         desactivate_pwm(M1_HIGH);
+         desactivate_pwm(M1_LOW); 
+         desactivate_pwm(M2_HIGH);
+         desactivate_pwm(M2_LOW);
+
+}
+
+
 
 void ativar_out(int seleciona_out){
 
@@ -294,43 +513,66 @@ void ativar_out(int seleciona_out){
     
     switch (seleciona_out) {
             case 1:
-                gpio_to_use = GPIO_NUM_18;
+                gpio_to_use = gpio_01;
                 statusLed1 =1;
                 break;
             case 2:
-                gpio_to_use = GPIO_NUM_19;
+                gpio_to_use = gpio_02;
                 statusLed2 =1;
                 break;
             case 3:
-                gpio_to_use = GPIO_NUM_14;
+                gpio_to_use = gpio_03;
                 statusLed3 =1;
                 break;
             case 4:
-                gpio_to_use = GPIO_NUM_12;
+                gpio_to_use = gpio_04;
                 statusLed4 =1;
                 break;
             case 5:
-                gpio_to_use = GPIO_NUM_13;
+                gpio_to_use = gpio_05;
                 statusLed5 =1;
                 break;
             case 6:
-                gpio_to_use = GPIO_NUM_23;
+                gpio_to_use = gpio_06;
                 statusLed6 =1;
                 break;
             case 7:
-                gpio_to_use = GPIO_NUM_22;
+                gpio_to_use = gpio_07;
                 statusLed7 =1;
                 break;
             case 8:
-                gpio_to_use = GPIO_NUM_21;
+                gpio_to_use = gpio_08;
                 statusLed8 =1;
+                break;
+            case 9:
+                gpio_to_use = gpio_09;
+                statusLed9 =1;
+                break;
+            case 10:
+                gpio_to_use = gpio_10;
+                statusLed10 =1;
+                break;
+            case 11:
+                gpio_to_use = gpio_11;
+                statusLed11 =1;
+                break;
+            case 12:
+                gpio_to_use = gpio_12;
+                statusLed12 =1;
                 break;
             default:
                 ESP_LOGE("GPIO", "Seleção de gpiout inválida");
                 return;  
         }
 
-        gpio_set_level(gpio_to_use, 1); // Assume que "1" ativa e "0" desativa        
+        if(gpio_to_use == gpio_02){
+            ESP_LOGI("PWM", "Antes Activate");
+            activate_pwm(2,PWM_led2);
+        }
+        else{
+            gpio_set_level(gpio_to_use, 1); // Assume que "1" ativa e "0" desativa    
+        }
+           
 
 }
 
@@ -340,44 +582,65 @@ void desativar_out(int seleciona_out){
     
     switch (seleciona_out) {
             case 1:
-                gpio_to_use = GPIO_NUM_18;
+                gpio_to_use = gpio_01;
                 statusLed1 =0;
                 break;
             case 2:
-                gpio_to_use = GPIO_NUM_19;
+                gpio_to_use = gpio_02;
                 statusLed2 =0;
                 break;
             case 3:
-                gpio_to_use = GPIO_NUM_14;
+                gpio_to_use = gpio_03;
                 statusLed3 =0;
                 break;
             case 4:
-                gpio_to_use = GPIO_NUM_12;
+                gpio_to_use = gpio_04;
                 statusLed4 =0;
                 break;
             case 5:
-                gpio_to_use = GPIO_NUM_13;
+                gpio_to_use = gpio_05;
                 statusLed5 =0;
                 break;
             case 6:
-                gpio_to_use = GPIO_NUM_23;
+                gpio_to_use = gpio_06;
                 statusLed6 =0;
                 break;
             case 7:
-                gpio_to_use = GPIO_NUM_22;
+                gpio_to_use = gpio_07;
                 statusLed7 =0;
                 break;
             case 8:
-                gpio_to_use = GPIO_NUM_21;
+                gpio_to_use = gpio_08;
                 statusLed8 =0;
+                break;
+            case 9:
+                gpio_to_use = gpio_09;
+                statusLed9 =0;
+                break;
+            case 10:
+                gpio_to_use = gpio_10;
+                statusLed10 =0;
+                break;
+            case 11:
+                gpio_to_use = gpio_11;
+                statusLed11 =0;
+                break;
+            case 12:
+                gpio_to_use = gpio_12;
+                statusLed12 =0;
                 break;
             default:
                 ESP_LOGE("GPIO", "Seleção de gpiout inválida");
                 return;  
         }
-
-        gpio_set_level(gpio_to_use, 0); // Assume que "1" ativa e "0" desativa        
-
+        
+        if(gpio_to_use == gpio_02){
+              ESP_LOGI("PWM", "Antes deActivate");
+            desactivate_pwm(2);
+        }
+        else{
+            gpio_set_level(gpio_to_use, 0); // Assume que "1" ativa e "0" desativa    
+        }   
 
 }
 
@@ -470,9 +733,6 @@ void post_firebase_led(int seleciona_sensor){
 
 
 
-
-
-
 // Handler para eventos do Wi-Fi
 void event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
@@ -532,33 +792,25 @@ void wifi_init() {
     esp_wifi_start();
 }
 
-void vtask_blink_led(void *pvParameter){
-    //Especifica que vai ser um GPIO 
-
-     esp_rom_gpio_pad_select_gpio (GPIO_NUM_32);
-     esp_rom_gpio_pad_select_gpio (GPIO_NUM_33);
-
-    //Define como saída
-     gpio_set_direction (GPIO_NUM_32, GPIO_MODE_OUTPUT);
-     gpio_set_direction (GPIO_NUM_33, GPIO_MODE_OUTPUT);
-
-    printf ("GPIO Configurado\n");
-    int uiCounter = 0;
-    int tempo_piscada = 1; // Tempo padrão de piscada em segundos
-
-    for(;;){
-        if (xQueueReceive(queue_tempo, &tempo_piscada, 0) == pdPASS) {
-            ESP_LOGI(TAG, "Tempo de piscada atualizado para %d segundos", tempo_piscada);
-        }
-        gpio_set_level(GPIO_NUM_25, (uiCounter%2));
-        gpio_set_level(GPIO_NUM_26, ((uiCounter+1)%2));
-        vTaskDelay(pdMS_TO_TICKS(tempo_piscada * 1000));
-        uiCounter++;
-        printf ("Pisquei\n");
+void setar_pwm(int seleciona, int value){
+    //seleciona = 2 led 2
+    //seleciona = 3 motor 1
+    //seleciona = 4 motor 2
+    //seleciona = 5 motor 1 e 2 
+    switch (seleciona)
+    {
+    case 2:
+        PWM_led2 = value;
+        break;
+    case 5:
+        PWM_motor_01 = value;
+        PWM_motor_02 = value;
+        break;
+    
+    default:
+        break;
     }
-
 }
-
 
 int ler_adc(int seleciona_sensor){
 
@@ -751,6 +1003,31 @@ int execute_command(const char* command, int value) {
     else if (strcmp(command, "ler") == 0 || strcmp(command, "\"ler") == 0) {
         int voltage = ler_adc(value);
          ESP_LOGI(TAG, "Valor ler ADC: %d", value);
+ 
+    }
+    else if (strcmp(command, "pwmled") == 0 || strcmp(command, "\"pwmled") == 0) {
+    setar_pwm(2,value);
+ 
+    }
+    else if (strcmp(command, "pwmm") == 0 || strcmp(command, "\"pwmm") == 0) {
+    setar_pwm(5,value);
+ 
+    }
+
+    else if (strcmp(command, "fre") == 0 || strcmp(command, "\"fre") == 0) {
+    controle_motor(value, 1);
+ 
+    }
+    else if (strcmp(command, "direita") == 0 || strcmp(command, "\"direita") == 0) {
+    controle_motor(value, 2);
+ 
+    }
+    else if (strcmp(command, "esquerda") == 0 || strcmp(command, "\"esquerda") == 0) {
+    controle_motor(value, 3);
+ 
+    }
+    else if (strcmp(command, "tras") == 0 || strcmp(command, "\"tras") == 0) {
+    controle_motor(value, 4);
  
     }
     else if (strncmp(command, "se-", 3) == 0  || strncmp(command, "\"se-",4) == 0) {
@@ -952,7 +1229,7 @@ void process_commands_while(const char* commands_while, int n_comandos, int qnt_
         char command_while[30];
         int value_while;
         sscanf(token_while, "%[^;];%d", command_while, &value_while);
-         ESP_LOGI(TAG, "Comando no process command do while: %s", command_while);
+         ESP_LOGI("While", "Comando no process command do while: %s", command_while);
 
         verifica_while = execute_command(command_while, value_while);
         if(verifica_while==0){ // execucao normal 
@@ -989,6 +1266,7 @@ void process_commands(const char* commands) {
    
 
     int qnt_strtok = 0;
+    int temp_qnt_strtok =0;
     
     static char* current_position = NULL; // Para manter a posição atual entre chamadas
     
@@ -1033,6 +1311,7 @@ void process_commands(const char* commands) {
             commands_while = NULL;
             ESP_LOGI(TAG, "----------------------------------------------------------------------------");
         }
+      
         else if(verifica==21){
              ESP_LOGI("while process comand", "process comando verifica = 21 ");
                 current_position = strdup(commands);
@@ -1040,11 +1319,13 @@ void process_commands(const char* commands) {
                     for (int i = 0; i <= qnt_strtok; i++) // = pra pular o while junto
                     {
                         token = strtok(NULL, "\\n");
+                        temp_qnt_strtok ++;
                     }
                     for (int i = 0; i < value; i++) // = pra pular o while junto
                     {
                         token = strtok(NULL, "\\n");
                     }
+                    qnt_strtok = qnt_strtok + temp_qnt_strtok;
         }
        vTaskDelay(10); //necessario para nao estourar o watchdog
     }
@@ -1080,7 +1361,7 @@ void app_main(void) {
     ESP_LOGI("MAIN", "criei task");
      
         // Desativar todos os logs
-    esp_log_level_set("*", ESP_LOG_NONE);
+   // esp_log_level_set("*", ESP_LOG_NONE);
 
     // Ativar logs somente para a tag ADC_CAL
     //esp_log_level_set("POST SENSOR", ESP_LOG_INFO);
@@ -1095,12 +1376,15 @@ void app_main(void) {
     config_entradas();
     ESP_LOGI("MAIN", "configurei entradas");
 
+    setup_pwm_timer(); // Configura o timer antes de ativar o PWM
+
+
     debounceSemaphore = xSemaphoreCreateBinary();
     xTaskCreate(debounce_task, "debounce_task", 2048, NULL, 10, NULL);
 
     setup_gpio_interrupt();
     ESP_LOGI("MAIN", "configurei interrupções");
-     //xTaskCreate(vtask_blink_led,"vtask_blink_led",2048,NULL,5,NULL);
+
      xTaskCreate(commandTask, "commandTask", 10240, NULL, 15, NULL);
 
    // Inicializa o Wi-Fi
