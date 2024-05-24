@@ -25,6 +25,9 @@ esp_adc_cal_characteristics_t adc_cal;//Estrutura que contem as informacoes para
 
 static const char *TAG = "wifi_http_example";
 
+static bool http_get_task_running = false;
+
+
 QueueHandle_t queue_tempo;
 QueueHandle_t commandQueue;
 
@@ -43,8 +46,11 @@ int statusLed11 = -1;
 int statusLed12 = -1;
 
 int PWM_led2 = 1023;
-int PWM_motor_01 = 1023;
-int PWM_motor_02 = 1023;
+int PWM_maior = 1023;
+int PWM_menor = 1016;
+int PWM_motor_01 = 1016; // direita
+int dif_pwm = 7;
+int PWM_motor_02 = 1023; //esquerda
 
 
 gpio_num_t gpio_to_reset = GPIO_NUM_25; //PINO D25
@@ -80,7 +86,9 @@ void setup_pwm_timer() {
 SemaphoreHandle_t debounceSemaphore;
 
 static void IRAM_ATTR gpio_isr_handler(void* arg) {
-    xSemaphoreGiveFromISR(debounceSemaphore, NULL);
+      
+        xSemaphoreGiveFromISR(debounceSemaphore, NULL);
+        
 }
 
 esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
@@ -217,8 +225,9 @@ void http_get_task(void *pvParameters)
         
 
     esp_http_client_cleanup(client);
-    vTaskDelete(NULL); // Termina a tarefa depois de executar a requisição HTTP
 
+    http_get_task_running = false; // Indica que a task completou sua execução
+    vTaskDelete(NULL); // Termina a tarefa depois de executar a requisição HTTP
     }
 
 
@@ -235,8 +244,10 @@ void debounce_task(void* arg) {
             // Verifica se o botão ainda está pressionado (nível baixo)
             if (gpio_get_level(gpio_to_reset) == 0) {
                 printf("Botão pressionado com sucesso.\n");
-
-                  xTaskCreate(http_get_task, "http_get_task", 4096, (void*)pin, 10, NULL);
+                if(http_get_task_running == false){
+                    xTaskCreate(http_get_task, "http_get_task", 4096, (void*)pin, 10, NULL);
+                }
+                  
             }
         }
      vTaskDelay(pdMS_TO_TICKS(DEBOUNCE_DELAY_MS));
@@ -485,10 +496,17 @@ gpio_num_t gpio_11 = GPIO_NUM_4; //PINO D4 //M2_LOW*/
                 desactivate_pwm(M2_LOW);
                 break;
             case 4:
+                int temp;
+                temp = PWM_motor_02;
+                PWM_motor_02 = PWM_motor_01;
+                PWM_motor_01 = temp;
                 desactivate_pwm(M1_HIGH);
                 activate_pwm(M1_LOW,PWM_motor_01); 
                 desactivate_pwm(M2_HIGH); 
                 activate_pwm(M2_LOW,PWM_motor_02);
+                temp = PWM_motor_02;
+                PWM_motor_02 = PWM_motor_01;
+                PWM_motor_01 = temp;
 
                 break;
            
@@ -496,8 +514,10 @@ gpio_num_t gpio_11 = GPIO_NUM_4; //PINO D4 //M2_LOW*/
                 ESP_LOGE("GPIO", "Seleção de gpiout inválida");
                 return;  
         }
+        int time_efetivo = tempo;
 
-         sys_delay_ms(tempo);
+
+         sys_delay_ms(time_efetivo);
          desactivate_pwm(M1_HIGH);
          desactivate_pwm(M1_LOW); 
          desactivate_pwm(M2_HIGH);
@@ -803,8 +823,8 @@ void setar_pwm(int seleciona, int value){
         PWM_led2 = value;
         break;
     case 5:
-        PWM_motor_01 = value;
         PWM_motor_02 = value;
+        PWM_motor_01 = value - dif_pwm;
         break;
     
     default:
