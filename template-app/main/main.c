@@ -46,11 +46,9 @@ int statusLed11 = -1;
 int statusLed12 = -1;
 
 int PWM_led2 = 1023;
-int PWM_maior = 1023;
-int PWM_menor = 1016;
-int PWM_motor_01 = 1016; // direita
+int PWM_motor_02 = 1023; // esquerda
 int dif_pwm = 7;
-int PWM_motor_02 = 1023; //esquerda
+int PWM_motor_01 = 1016; //direita
 
 
 gpio_num_t gpio_to_reset = GPIO_NUM_25; //PINO D25
@@ -462,7 +460,7 @@ gpio_num_t gpio_11 = GPIO_NUM_4; //PINO D4 //M2_LOW*/
      int M1_LOW =  9;
      int M2_HIGH = 10;
      int M2_LOW = 11;
-
+     int temp;
 
     //0 - desligar todos as saidas com 0 
     //1 - frente - m1_high e m2_high com 1 e m1_low 0 m2_low 0;
@@ -496,7 +494,7 @@ gpio_num_t gpio_11 = GPIO_NUM_4; //PINO D4 //M2_LOW*/
                 desactivate_pwm(M2_LOW);
                 break;
             case 4:
-                int temp;
+                
                 temp = PWM_motor_02;
                 PWM_motor_02 = PWM_motor_01;
                 PWM_motor_01 = temp;
@@ -516,7 +514,24 @@ gpio_num_t gpio_11 = GPIO_NUM_4; //PINO D4 //M2_LOW*/
         }
         int time_efetivo = tempo;
 
+        if(comando == 2 || comando ==3){
+            switch (PWM_motor_02)
+            {
+            case 1023: // PWM em 100%
+                time_efetivo = tempo;        
+            break;
+            case 767: // PWM em 75%
+                time_efetivo = (tempo*166)/100;
+                break;
+            case 512: // PWM em 50%
+                time_efetivo = tempo*4;
+            break;
+            default:
+                break;
+            }
+        }
 
+        ESP_LOGI("tempo efetivo","tempo efetivo %d",time_efetivo);
          sys_delay_ms(time_efetivo);
          desactivate_pwm(M1_HIGH);
          desactivate_pwm(M1_LOW); 
@@ -1229,7 +1244,7 @@ int execute_command(const char* command, int value) {
 }
 return 0;
 }
-void process_commands_while(const char* commands_while, int n_comandos, int qnt_strok_while) {
+void process_commands_while(const char* commands_while, int n_comandos, int qnt_strtok_while) {
    
        
     static char* current_position_while = NULL; // Para manter a posição atual entre chamadas
@@ -1237,12 +1252,13 @@ void process_commands_while(const char* commands_while, int n_comandos, int qnt_
     current_position_while = strdup(commands_while);
     ESP_LOGI("While", "Current position do while: %s", current_position_while);
     char* token_while = strtok(current_position_while, "\\n");
-    for (int i = 0; i <= qnt_strok_while; i++) // = pra pular o while junto
+    ESP_LOGI("While", "Token do while antes de ajustar: %s e n_comandos; %d  e qnt_strtok = %d", token_while,n_comandos,qnt_strtok_while);
+    for (int i = 0; i <= qnt_strtok_while; i++) // = pra pular o while junto
     {
        token_while = strtok(NULL, "\\n");
     }
     
-    ESP_LOGI("While", "Token do while: %s e n_comandos; %d", token_while,n_comandos);
+    
     int verifica_while = 0; // Valor para avaliar if, else e while
 
     while (token_while != NULL&&n_comandos!=0) {
@@ -1294,6 +1310,7 @@ void process_commands(const char* commands) {
     
 
     char* token = strtok(current_position, "\\n");
+
     int verifica = 0; // Valor para avaliar if, else e while
 
     while (token != NULL) {
@@ -1307,14 +1324,17 @@ void process_commands(const char* commands) {
         if(verifica==0){ // execucao normal 
          token = strtok(NULL, "\\n");
          qnt_strtok ++;
+         ESP_LOGI("qnt_strtok", " qnt_strtok apos execucao normal verifica == 0  = %d", qnt_strtok);
 
         }
         else if(verifica==10){ //10 = remove comandos. 
             for(int i = 0; i<=value;i++){
             
                  token = strtok(NULL, "\\n");
+                
                  qnt_strtok ++;
-                   ESP_LOGI(TAG, "Removendo comando %d",i);
+                 ESP_LOGI("qnt_strtok", " qnt_strtok apos somar verifica == 10  = %d", qnt_strtok);
+                ESP_LOGI(TAG, "Removendo comando %d",i);
                             
             }
         }
@@ -1336,16 +1356,21 @@ void process_commands(const char* commands) {
              ESP_LOGI("while process comand", "process comando verifica = 21 ");
                 current_position = strdup(commands);
                 token = strtok(current_position, "\\n");
+                temp_qnt_strtok = value +1;
+                 ESP_LOGI("qnt_strtok", " qnt_strtok para temp_qnt_strtok = %d",qnt_strtok);
                     for (int i = 0; i <= qnt_strtok; i++) // = pra pular o while junto
                     {
                         token = strtok(NULL, "\\n");
-                        temp_qnt_strtok ++;
+                        
                     }
                     for (int i = 0; i < value; i++) // = pra pular o while junto
                     {
                         token = strtok(NULL, "\\n");
                     }
+                    ESP_LOGI("qnt_strtok", " qnt_strtok antes somar com temp (%d) = %d",temp_qnt_strtok, qnt_strtok);
                     qnt_strtok = qnt_strtok + temp_qnt_strtok;
+                    ESP_LOGI("qnt_strtok", " qnt_strtok depois somar com temp (%d) = %d",temp_qnt_strtok, qnt_strtok);
+
         }
        vTaskDelay(10); //necessario para nao estourar o watchdog
     }
