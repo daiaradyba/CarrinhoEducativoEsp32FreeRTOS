@@ -163,6 +163,7 @@ gpio_num_t gpio_12 = GPIO_NUM_27; //PINO D27
 #define REST 0
 
 int duracao_nota = 1000; // 1 segundo default;
+int num_repeticoes = -1; // valor que sei que nao foi configurado ainda
 
 
 // notes of the moledy followed by the duration.
@@ -571,10 +572,10 @@ void playMelody_mario(void *pvParameters) {
 void buzzer_melody(int value){
     ESP_LOGI("Melody","entrei buzzer melody com value %d",value );
     if (value == 1){
-         xTaskCreate(playMelody_tetris, "playMelody_tetris", 2048, NULL, 5, NULL);
+         xTaskCreate(playMelody_tetris, "playMelody_tetris", 4096, NULL, 5, NULL);
     }
     if (value == 2){
-         xTaskCreate(playMelody_mario, "playMelody_mario", 2048, NULL, 5, NULL);
+         xTaskCreate(playMelody_mario, "playMelody_mario", 4096, NULL, 5, NULL);
     }
     else{
         playTone(value, duracao_nota);
@@ -1240,8 +1241,6 @@ void verifica_condicoes(const char* command, int value, char compara, char**cond
 
 int execute_command(const char* command, int value) {
     
-
-
     // Preparando a mensagem a ser enviada para o Firebase
     char message[256]; // Ajuste o tamanho conforme necessário
     snprintf(message, sizeof(message), "Comando;%s;%d", command, value);
@@ -1310,6 +1309,7 @@ int execute_command(const char* command, int value) {
     controle_motor(value, 4);
  
     }
+
     else if (strncmp(command, "se-", 3) == 0  || strncmp(command, "\"se-",4) == 0) {
         char compara = 'a'; // char = < > 
          ESP_LOGI(TAG, "Condição tipo Se");
@@ -1317,6 +1317,11 @@ int execute_command(const char* command, int value) {
         char* condicoes[] = {"a","b"};
         
       ESP_LOGI(TAG, "Comando dentro da condição se: %s", command);
+        int temp; 
+        char command_temp[30];
+        sscanf(command, "%[^-]-%c", command_temp, &compara);
+
+
         if(strncmp(command, "se-", 3) == 0){
             sscanf(command, "se-%c",&compara);
               ESP_LOGI(TAG, "Compara %c",compara);
@@ -1337,6 +1342,23 @@ int execute_command(const char* command, int value) {
     }
         if(strncmp(command, "\"se-",4) == 0){
              sscanf(command, "se-%c",&compara);
+             ESP_LOGI(TAG, "Compara %c",compara);
+            char* condPart = strchr(command + 5, compara);  // Encontra o '=' na string
+            if (condPart) {
+                *condPart = '\0';  // Termina a string para isolar a parte antes do '='
+                condPart++;  // Move para o caractere após o '='
+                char* endPart = strchr(condPart, ';');  // Encontra o ';' na string
+                if (endPart) {
+                     *endPart = '\0';  // Termina a string para isolar a parte antes do ';'
+                 }
+
+            // Agora temos as partes isoladas
+            condicoes[0] = command + 5;  // Aponta para o início da condição
+            condicoes[1] = condPart;  // Aponta para o início do valor de status
+            }
+        }
+        if(strncmp(command, """se-",4) == 0){
+             sscanf(command, """se-%c",&compara);
              ESP_LOGI(TAG, "Compara %c",compara);
             char* condPart = strchr(command + 5, compara);  // Encontra o '=' na string
             if (condPart) {
@@ -1400,6 +1422,8 @@ int execute_command(const char* command, int value) {
     else if (strncmp(command, "while-", 6) == 0  || strncmp(command, "\"while-",7) == 0) {
         char compara = 'a'; // char = < > 
          ESP_LOGI(TAG, "Condição tipo WHILE");
+        char command_temp[30];
+        sscanf(command, "%[^-]-%c", command_temp, &compara);
 
         char* condicoes[] = {"a","b"};
         
@@ -1423,7 +1447,7 @@ int execute_command(const char* command, int value) {
             }
     }
         if(strncmp(command, "\"while-",7) == 0){
-             sscanf(command, "se-%c",&compara);
+             sscanf(command, "se-%c",&compara); //mudei essa linha de se para while
              ESP_LOGI(TAG, "Compara %c",compara);
             char* condPart = strchr(command + 8, compara);  // Encontra o '=' na string
             if (condPart) {
@@ -1487,6 +1511,31 @@ int execute_command(const char* command, int value) {
 
 
 }
+    else if (strncmp(command, "for-", 4) == 0  || strncmp(command, "\"for-",5) == 0) {
+        int temp; 
+        char command_temp[30];
+        sscanf(command, "%[^-]-%d", command_temp, &temp);
+
+        
+        ESP_LOGI("for ", "command = %s", command);
+           ESP_LOGI("for ", "temp = %d", temp);
+        ESP_LOGI("for ", "num_repetições antes do if pra transformar em temp+1 %d", num_repeticoes);
+        if(num_repeticoes == -1){
+            num_repeticoes = temp + 1;
+        }
+        ESP_LOGI("for ", "num_repetições depois do if pra transformar em temp+1 %d", num_repeticoes);
+        num_repeticoes --; 
+         ESP_LOGI("for ", "num_repetições para ver return %d", num_repeticoes);
+        if(num_repeticoes == 0){
+            num_repeticoes = -1;
+            return 31; // ainda não 
+        }
+        else{
+            return 30; 
+        }
+              
+
+}
 return 0;
 }
 void process_commands_while(const char* commands_while, int n_comandos, int qnt_strtok_while) {
@@ -1531,7 +1580,11 @@ void process_commands_while(const char* commands_while, int n_comandos, int qnt_
         else if(verifica_while==20){//20 = WHILE 
             ESP_LOGI(TAG, "Entrei num While dentro de um While");
            
-        }     
+        }    
+        else if(verifica_while==30){//20 = WHILE 
+            ESP_LOGI(TAG, "Entrei num for dentro de um while");
+           
+        }      
 
 
     }
@@ -1539,6 +1592,64 @@ void process_commands_while(const char* commands_while, int n_comandos, int qnt_
      ESP_LOGI("While", "Terminei de processar todos os comandos do WHILE");
         free(current_position_while);
         current_position_while = NULL;
+   
+}
+
+void process_commands_for(const char* commands_for, int n_comandos, int qnt_strtok_for) {
+   
+       
+    static char* current_position_for = NULL; // Para manter a posição atual entre chamadas
+    
+    current_position_for = strdup(commands_for);
+    ESP_LOGI("For", "Current position do for: %s", current_position_for);
+    char* token_for = strtok(current_position_for, "\\n");
+    ESP_LOGI("For", "Token do For antes de ajustar: %s e n_comandos; %d  e qnt_strtok = %d", token_for,n_comandos,qnt_strtok_for);
+    for (int i = 0; i <= qnt_strtok_for; i++) // = pra pular o for junto
+    {
+       token_for = strtok(NULL, "\\n");
+    }
+    
+    
+    int verifica_for = 0; // Valor para avaliar if, else e while
+
+    while (token_for != NULL&&n_comandos!=0) {
+        char command_for[30];
+        int value_for;
+        sscanf(token_for, "%[^;];%d", command_for, &value_for);
+         ESP_LOGI("For", "Comando no process command do For: %s", command_for);
+
+        verifica_for = execute_command(command_for, value_for);
+        if(verifica_for==0){ // execucao normal 
+         token_for = strtok(NULL, "\\n");
+         n_comandos--;
+
+        }
+        else if(verifica_for==10){ //10 = remove comandos. 
+            for(int i = 0; i<=value_for;i++){
+            
+                 token_for = strtok(NULL, "\\n");
+                 n_comandos--;
+                   ESP_LOGI(TAG, "Removendo comando do for %d",i);
+                            
+            }
+        }
+
+        else if(verifica_for==20){//20 = WHILE 
+            ESP_LOGI(TAG, "Entrei num While dentro de um for");
+           
+        }     
+        else if(verifica_for==30){//20 = WHILE 
+            ESP_LOGI(TAG, "Entrei num for dentro de um for");
+           
+        }     
+
+
+
+    }
+   
+     ESP_LOGI("for", "Terminei de processar todos os comandos do for");
+        free(current_position_for);
+        current_position_for = NULL;
    
 }
 
@@ -1617,6 +1728,40 @@ void process_commands(const char* commands) {
                     ESP_LOGI("qnt_strtok", " qnt_strtok depois somar com temp (%d) = %d",temp_qnt_strtok, qnt_strtok);
 
         }
+               
+        else if(verifica==30){//30 = FOR condição verdadeira, repetir
+            ESP_LOGI(TAG, "----------------------------------------------------------------------------");
+             ESP_LOGI("for process comand", "process comando verifica = 30 ");
+            static char* commands_for = NULL; // Para manter a posição atual entre chamadas
+            commands_for = strdup(commands);
+
+            process_commands_for (commands,value,qnt_strtok);
+
+            free(commands_for);
+            commands_for = NULL;
+            ESP_LOGI(TAG, "----------------------------------------------------------------------------");
+        }
+      
+        else if(verifica==31){ //for condição falsa
+             ESP_LOGI("for process comand", "for comando verifica = 31 ");
+                current_position = strdup(commands);
+                token = strtok(current_position, "\\n");
+                temp_qnt_strtok = value +1;
+                 ESP_LOGI("qnt_strtok", " qnt_strtok para temp_qnt_strtok = %d",qnt_strtok);
+                    for (int i = 0; i <= qnt_strtok; i++) // = pra pular o for junto
+                    {
+                        token = strtok(NULL, "\\n");
+                        
+                    }
+                    for (int i = 0; i < value; i++) // = pra pular o for junto
+                    {
+                        token = strtok(NULL, "\\n");
+                    }
+                    ESP_LOGI("qnt_strtok", " qnt_strtok antes somar com temp (%d) = %d",temp_qnt_strtok, qnt_strtok);
+                    qnt_strtok = qnt_strtok + temp_qnt_strtok;
+                    ESP_LOGI("qnt_strtok", " qnt_strtok depois somar com temp (%d) = %d",temp_qnt_strtok, qnt_strtok);
+
+        }
        vTaskDelay(10); //necessario para nao estourar o watchdog
     }
       post_finished_to_firebase("Finalizado");
@@ -1668,6 +1813,7 @@ void app_main(void) {
 
     setup_pwm_timer(); // Configura o timer antes de ativar o PWM
 
+    desativar_out(2); 
 
     debounceSemaphore = xSemaphoreCreateBinary();
     xTaskCreate(debounce_task, "debounce_task", 2048, NULL, 10, NULL);
