@@ -15,7 +15,7 @@
 #include <esp_adc_cal.h>
 
 #define WIFI_SSID      "Daiara"
-#define WIFI_PASS      "day12358"
+#define WIFI_PASS      ""
 #define MAX_HTTP_RECV_BUFFER 1024
 #define MAX_COMMAND_LENGTH 1024
 #define ESP_INTR_FLAG_DEFAULT 0
